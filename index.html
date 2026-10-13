@@ -301,7 +301,7 @@ const TRACKS = {
   cold: [
     {id:'d1-li',   day:1,  ch:'linkedin', label:'Connection request', li:'connect'},
     {id:'d1-call', day:1,  ch:'call',     label:'Call 1 + voicemail', opener:'persona', vm:'persona'},
-    {id:'d1-email',day:1,  ch:'email',    label:'Email 1 · by persona ("one letter"; executives: "who owns background checks?")', email:'persona'},
+    {id:'d1-email',day:1,  ch:'email',    label:'Email 1 · by persona', email:'persona'},
     {id:'d3-email',day:3,  ch:'email',    label:'Email 2 · reply in thread', email:'e2'},
     {id:'d3-call', day:3,  ch:'call',     label:'Call 2 · no voicemail', opener:'L', vm:''},
     {id:'d5-call', day:5,  ch:'call',     label:'Call 3 + voicemail', opener:'d5', vm:'persona'},
@@ -449,6 +449,7 @@ function resetObj(target, src){ for (const k of Object.keys(target)) delete targ
 function applyCustom(){
   const cu = DB.custom = Object.assign({scripts:{}, tracks:{}, personas:{}, schedule:null}, DB.custom||{});
   for (const lib of Object.keys(LIBS)){ cu.scripts[lib] = cu.scripts[lib] || {}; resetObj(LIBS[lib], DEFAULTS[lib]); for (const [k,v] of Object.entries(cu.scripts[lib])) LIBS[lib][k]=structuredClone(v); }
+  const long=cu.tracks.cold?.find(x=>x.id==='d1-email' && x.label==='Email 1 · by persona ("one letter"; executives: "who owns background checks?")'); if (long) long.label='Email 1 · by persona';
   const e1=cu.tracks.cold?.find(x=>x.id==='d1-email' && x.email==='e1' && x.label==='Email 1 · "one letter"');
   if (e1){ e1.email='persona'; e1.label=DEFAULTS.TRACKS.cold.find(x=>x.id==='d1-email').label; }
   for (const t of Object.keys(DEFAULTS.TRACKS)) TRACKS[t] = structuredClone(cu.tracks[t] || DEFAULTS.TRACKS[t]);
@@ -477,7 +478,7 @@ function priority(c){
   const co=company(c); let s=optimal(co)*100; if (co.trigger) s+=40;
   s += ({HRL:15,OPS:12,TA:10,EXEC:8})[persona(c)] || 0;
   if (c.directPhone && !c.phoneBad) s+=6; else if (c.businessPhone) s+=2;
-  if (c.email && !c.emailBad) s+=4; if (c.track==='reengage' || c.source==='Old lead') s+=5;
+  if (c.email && !c.emailBad) s+=4; if (c.track==='reengage' || c.source==='Old lead') s+=5; if (c.referredBy) s+=150;
   return s;
 }
 const trackFor = c => c.source==='Old lead' ? 'reengage' : 'cold';
@@ -571,6 +572,8 @@ function applyOutcome(c, stepId, outcome, date, quiet){
 }
 function logOutcome(c, stepId, outcome){ applyOutcome(c, stepId, outcome, todayStr(), false); save(); render(); }
 function undoLast(c){
+  const lt=(c.touches||[])[(c.touches||[]).length-1];
+  if (c.lastReply && (!lt || (c.lastReply.at > (lt.at||'')) || lt.step===c.lastReply.addedStep)){ undoReply(c); render(); toast('Email reply undone (paused colleagues stay paused)'); return; }
   const t=(c.touches||[]).pop(); if (!t) return;
   if (String(t.step).startsWith('recall-')){
     const r=(c.recalls||[]).find(x=>'recall-'+x.id===t.step);
@@ -653,6 +656,104 @@ function applyBounce(c, o){
   } else { if (t) c.touches=c.touches.filter(x=>x!==t); msg='Temporary bounce: that email is back in your list. Resend it tomorrow.'; }
   if (c.status==='Attempting' && pendingSteps(c).length===0){ c.status='Nurture'; c.revisitDate=addDays(todayStr(),90); }
   touch(c); save(); return msg;
+}
+
+/* ---------- Email replies (logged any time, not only while the email is due) ---------- */
+const REPLY_TYPES = {
+  interested:{group:'From them', label:'Interested / wants to talk', help:'Moves to Connected: set the next step on Today. Colleagues at the company pause.'},
+  meeting:   {group:'From them', label:'Booked a meeting', help:'Moves to Discovery booked. Add them to HubSpot.'},
+  notnow:    {group:'From them', label:'Not now / check back later', help:'Cadence stops. They come back on Today on the revisit date.'},
+  notint:    {group:'From them', label:'Not interested', help:'Cadence stops. Revisit date defaults to 6 months out.'},
+  referral:  {group:'From them', label:"Not me / talk to someone else", help:'Moves to Unqualified. Add the person they named and they go to the top of your queue.'},
+  optout:    {group:'From them', label:'Unsubscribe / remove me', help:'Moves to Do not contact. Nothing more is scheduled.'},
+  ooo:       {group:'Automatic reply', label:'Out of office / holiday', help:"The cadence pauses and picks up when they're back, with the same spacing. Not counted as a response."},
+  left:      {group:'Automatic reply', label:'Left the company', help:'Moves to Unqualified. Add their replacement if the auto-reply names one.'},
+  bounce:    {group:"Didn't deliver", label:'Bounce-back (undeliverable)', help:'Opens the bounce-back window.'},
+};
+const MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+function futureDate(m, d, y){ const t=todayStr(); let yy=y ? (y<100?2000+y:y) : +t.slice(0,4); let s=`${yy}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; if (!y && s<=t){ yy++; s=`${yy}-${s.slice(5)}`; } return isValidYmd(s) && m>=1 && m<=12 && d>=1 && d<=31 ? s : ''; }
+function returnDateIn(text){
+  const s=String(text||'').toLowerCase(), t=todayStr(), hits=[];
+  for (const x of s.matchAll(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/g)){ const d=futureDate(+x[1], +x[2], x[3]?+x[3]:0); if (d) hits.push(d); }
+  for (const x of s.matchAll(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?/g)){ const d=futureDate(MONTHS.indexOf(x[1])+1, +x[2], x[3]?+x[3]:0); if (d) hits.push(d); }
+  for (const x of s.matchAll(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*/g)){ const d=futureDate(MONTHS.indexOf(x[2])+1, +x[1], 0); if (d) hits.push(d); }
+  if (!hits.length){ const w=s.match(/\b(?:back|return(?:ing)?)\b[^.]{0,30}?\b(monday|tuesday|wednesday|thursday|friday)\b/); if (w){ const want=['sunday','monday','tuesday','wednesday','thursday','friday','saturday'].indexOf(w[1]); let d=addDays(t,1); while (parseYmd(d).getDay()!==want) d=addDays(d,1); hits.push(d); } }
+  const future=hits.filter(d=>d>t).sort(); return future.length ? future[future.length-1] : '';  /* the last date mentioned is usually the return */
+}
+function detectReply(text){
+  const s=String(text||'').toLowerCase();
+  if (/undeliverable|delivery (status notification|has failed|failed)|mail delivery (failed|subsystem)|mailer-daemon|address not found|user unknown|no such user|5\.\d\.\d|\b550\b/.test(s)) return {type:'bounce'};
+  if (/no longer (with|employed|work)|has left|left the (company|organization|firm)|not with .{0,30} anymore|is no longer/.test(s)) return {type:'left'};
+  if (/out of (the )?office|automatic reply|auto[- ]?reply|autoreply|on (vacation|holiday|leave|pto)|annual leave|away from (the office|my desk)|limited access to (e-?mail|my email)|\booo\b|returning on|i will be back|back in the office|currently away/.test(s)) return {type:'ooo', back:returnDateIn(s)};
+  if (/unsubscribe|remove me|take me off|stop (emailing|contacting)|do not (contact|email)|opt(ed)? out/.test(s)) return {type:'optout'};
+  if (/not (the right|the best) person|you('d| would) (want|need) to (talk|speak|reach)|better (person|contact)|reach out to|contact .{0,40} instead|handles (that|this|our)|cc'?ing|looping in/.test(s)) return {type:'referral'};
+  if (/not interested|no interest|we('re| are) (all )?set|happy with (our|the) (current|provider)|no thanks|no, thank|not a fit/.test(s)) return {type:'notint'};
+  if (/not (right )?now|maybe later|next (quarter|year)|reach (back )?out (in|after)|check back|circle back|after (our|the) renewal|bad time/.test(s)) return {type:'notnow'};
+  if (/calendar invite|booked|let's meet|scheduled|see you (on|then)/.test(s)) return {type:'meeting'};
+  return {type:'interested'};
+}
+function lastSentEmail(c){ return [...(c.touches||[])].reverse().find(t=>t.ch==='email' && t.outcome==='Sent'); }
+function addReferral(c, o, reason){
+  const name=String(o.newName||'').trim(); if (!name) return '';
+  const co=company(c), p=name.split(/\s+/);
+  commitRecords([{name, first:p[0], last:p.slice(1).join(' '), title:String(o.newTitle||'').trim(), email:String(o.newEmail||'').trim().toLowerCase(), directPhone:'', businessPhone:c.businessPhone||'', linkedin:'', liKnown:false,
+    company:co.name, state:co.state, city:co.city||'', employees:co.employees, annualHires:co.annualHires, industry:co.industry||'', lastContacted:'', priorStatus:'', owner:'', notes:`${reason} by ${c.name} (${prettyDate(todayStr())})`}], c.owner, 'ZoomInfo');
+  const nc=DB.contacts.find(x=>x.companyKey===c.companyKey && norm(x.name)===norm(name));
+  if (nc){ nc.referredBy=c.name; if (nc.status==='Paused'){ nc.status='New'; nc.pauseReason=''; } touch(nc); }
+  return ` ${name} added to your queue at the top${nc&&!nc.email?' (no email yet)':''}.`;
+}
+function applyReply(c, type, o){
+  const today=todayStr(), t=lastSentEmail(c);
+  c.lastReply={at:new Date().toISOString(), type, touchAt:t?.at||'', prevOutcome:t?.outcome||'', prevAuto:t?.autoReply||'', prevStatus:c.status, prevStart:c.startDate, prevRevisit:c.revisitDate||'', addedStep:''};
+  const mark = outcome => { if (t){ t.outcome=outcome; t.replyDate=today; } else { const step='reply-'+uid(); c.lastReply.addedStep=step; (c.touches ||= []).push({step, ch:'email', label:'Email reply (no send logged)', date:today, outcome, at:new Date().toISOString()}); } };
+  let msg='';
+  if (type==='interested'){ mark('Replied'); c.status='Connected'; pauseColleagues(c, `Colleague ${c.name} replied`); msg=`${c.name} moved to Connected: set the next step on Today`; }
+  else if (type==='meeting'){ mark('Meeting booked'); c.status='Discovery booked'; c.discoveryDate=today; pauseColleagues(c, `Colleague ${c.name} booked discovery`); msg=`Discovery booked: add ${c.name} to HubSpot`; }
+  else if (type==='notnow' || type==='notint'){ mark('Replied'); c.status='Nurture'; c.revisitDate=isValidYmd(o.revisit)?o.revisit:addDays(today, type==='notnow'?90:180); msg=`Cadence stopped. ${c.name} comes back on Today ${prettyDate(c.revisitDate)}`; }
+  else if (type==='referral'){ mark('Replied'); c.status='Unqualified'; c.unqualReason='Not the right person'; msg=`${c.name} marked not the right person.`+addReferral(c, o, 'Referred'); }
+  else if (type==='optout'){ mark('Opted out'); c.status='Do not contact'; msg=`${c.name} marked do not contact`; }
+  else if (type==='ooo'){
+    const back=isValidYmd(o.back)&&o.back>today ? nextBiz(o.back) : '';
+    if (t) t.autoReply=`Out of office${back?' until '+prettyDate(back):''}`;
+    if (back && c.status==='Attempting'){ const nxt=nextStep(c); const shift = nxt ? daysBetween(nxt.due<today?today:nxt.due, back) : 0;
+      if (shift>0){ c.startDate=addDays(c.startDate, shift); for (const r of pendingRecalls(c)) if (r.date<back){ r.date=back; } msg=`Out of office until ${prettyDate(back)}: their next touches move ${shift} day${shift===1?'':'s'} later.`; }
+      else msg=`Out of office until ${prettyDate(back)}: their next touch is already after that.`; }
+    else msg = back ? 'Out of office noted.' : 'Out of office noted. Add a return date to pause their cadence until then.';
+  }
+  else if (type==='left'){ if (t) t.autoReply='Auto-reply: left the company'; c.status='Unqualified'; c.unqualReason='Left the company'; msg=`${c.name} marked as left the company.`+addReferral(c, o, 'Named as replacement'); }
+  const note=String(o.note||'').trim(); if (note) c.notes=`${prettyDate(today)} · email reply: ${note}${c.notes?'\n'+c.notes:''}`;
+  touch(c); save(); return msg;
+}
+function undoReply(c){
+  const r=c.lastReply; if (!r) return false;
+  if (r.addedStep) c.touches=(c.touches||[]).filter(x=>x.step!==r.addedStep);
+  else { const t=(c.touches||[]).find(x=>x.at===r.touchAt); if (t){ t.outcome=r.prevOutcome||t.outcome; delete t.replyDate; if (r.prevAuto) t.autoReply=r.prevAuto; else delete t.autoReply; } }
+  c.status=r.prevStatus; c.startDate=r.prevStart; c.revisitDate=r.prevRevisit; delete c.lastReply; touch(c); save(); return true;
+}
+function renderReplyModal(host, c, m){
+  const t=lastSentEmail(c), det=m.detected||{type:'interested'}, groups={};
+  for (const [k,v] of Object.entries(REPLY_TYPES)) (groups[v.group] ||= []).push([k,v]);
+  host.innerHTML = `<div class="modal-back" data-act="closeModal"></div><div class="modal" style="width:min(600px,94vw)">
+    <h3 style="margin-top:0">Email back · ${esc(c.name)}</h3>
+    <p class="small muted" style="margin-top:0">${esc(company(c).name)} · ${esc(c.email||'no email on file')} · ${t?(()=>{ const st=steps(c).find(x=>x.id===t.step); return `last email: "${esc(st&&st.email?emailFor(c,st.email,st).subject:t.label)}" on ${prettyDate(t.date)}`; })():'no sent email logged yet'} · status ${esc(c.status)}</p>
+    ${m.detected?'<p class="small" style="margin-top:0"><span class="tag good">Picked from the message you pasted</span> Check it before saving.</p>':''}
+    ${Object.entries(groups).map(([g,items])=>`<div class="small muted" style="font-weight:700;margin:8px 0 4px">${g}</div><div style="display:flex;flex-direction:column;gap:5px">${items.map(([k,v])=>`<label class="chk" style="align-items:flex-start"><input type="radio" name="rType" value="${k}" ${det.type===k?'checked':''}> <span><b>${v.label}</b><br><span class="small muted">${v.help}</span></span></label>`).join('')}</div>`).join('')}
+    <div class="fields" style="margin-top:12px">
+      <label data-rshow="notnow notint">Revisit on<input type="date" id="rRevisit" value="${addDays(todayStr(), det.type==='notint'?180:90)}"></label>
+      <label data-rshow="ooo">Back in the office<input type="date" id="rBack" value="${det.back||''}"></label>
+      <label data-rshow="referral left">Person they named<input type="text" id="rnName" placeholder="First Last"></label>
+      <label data-rshow="referral left">Their title<input type="text" id="rnTitle"></label>
+      <label data-rshow="referral left" style="grid-column:1/-1">Their email<input type="text" id="rnEmail" placeholder="name@company.com"></label>
+      <label data-rshow="interested meeting notnow notint referral optout left ooo" style="grid-column:1/-1">Note (saved on the contact)<input type="text" id="rNote" placeholder="e.g. renewal is in March; wants pricing on the demo"></label></div>
+    <div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" data-act="rSave">Save</button><button class="btn" data-act="closeModal">Cancel</button></div></div>`;
+  replyFields();
+}
+function replyFields(){ const v=document.querySelector('input[name=rType]:checked')?.value; document.querySelectorAll('[data-rshow]').forEach(el=>el.style.display = el.dataset.rshow.split(' ').includes(v) ? '' : 'none'); }
+function findContacts(q){
+  const found=new Set((q.toLowerCase().match(/[\w.+'-]+@[\w-]+(\.[\w-]+)+/g)||[]).map(x=>x.replace(/[.,;]+$/,'')));
+  let hits = found.size ? DB.contacts.filter(x=>x.email && found.has(x.email)) : [];
+  if (!hits.length){ const ql=q.toLowerCase(); hits = DB.contacts.filter(x=>x.name && (ql.includes(x.name.toLowerCase()) || (!found.size && `${x.name} ${x.email}`.toLowerCase().includes(ql)))); }
+  return hits.sort((a,b)=>(mine(b)?1:0)-(mine(a)?1:0));
 }
 
 function queueModel(){
@@ -879,8 +980,8 @@ function buildTrackerWorkbook(){
       'Discovery Date':c.discoveryDate||'','Pause Reason':c.pauseReason,'Phone Bad':yn(c.phoneBad),'Email Bad':yn(c.emailBad),'Last Contacted (import)':c.lastContacted,
       'Prior Status (import)':c.priorStatus,'Notes':c.notes,'Email Blocked':yn(c.emailBlocked),
       'Next Call-back':(()=>{ const r=pendingRecalls(c)[0]; return r?`${r.date} ${fmtHour(hrs(r.time))} (their ${r.their})`:''; })(),
-      'Call-backs (data)':JSON.stringify(c.recalls||[]),'Bounces (data)':JSON.stringify(c.bounces||[]),'Both Reps Had It':c.alsoOn||'','Updated At':new Date(c.updatedAt||Date.now()).toISOString()}; });
-  const T = []; for (const c of DB.contacts) for (const t of allTouches(c)) T.push({'PT_ID':c.id,'Contact':c.name,'Company':company(c).name,'Date':t.date,'Step ID':t.step,'Channel':CH_LABEL[t.ch]||t.ch,'Step':t.label,'Outcome':t.outcome,'Logged At':t.at,'Logged From':t.sheet?'Run sheet':'App','Earlier cadence':t.archived?(t.track||'cold'):''});
+      'Call-backs (data)':JSON.stringify(c.recalls||[]),'Bounces (data)':JSON.stringify(c.bounces||[]),'Both Reps Had It':c.alsoOn||'','Referred By':c.referredBy||'','Updated At':new Date(c.updatedAt||Date.now()).toISOString()}; });
+  const T = []; for (const c of DB.contacts) for (const t of allTouches(c)) T.push({'PT_ID':c.id,'Contact':c.name,'Company':company(c).name,'Date':t.date,'Step ID':t.step,'Channel':CH_LABEL[t.ch]||t.ch,'Step':t.label,'Outcome':t.outcome,'Logged At':t.at,'Logged From':t.sheet?'Run sheet':'App','Earlier cadence':t.archived?(t.track||'cold'):'','Reply Logged':t.replyDate||'','Auto-reply':t.autoReply||''});
   const K = Object.values(DB.companies).map(co=>({'Company Key':co.key,'Company':co.name,'State':co.state,'City':co.city,'Employees':co.employees,'Est Annual Hires':co.annualHires,'Industry':co.industry,
     'Mid-sized':isMid(co)?'Yes':'','Mid-sized Override':co.midOverride===true?'Yes':co.midOverride===false?'No':'','Higher-touch':yn(co.higherTouch),'Organized':yn(co.organized),
     'Optimal Score':optimal(co),'Trigger':co.trigger,'Trigger Note':co.triggerNote,'Trigger Date':co.triggerDate,'Current Provider':co.provider,'Renewal Date':co.renewalDate,'Renewal Dismissed':co.renewalDismissed||'','Emails Paused':yn(co.emailBlocked)}));
@@ -953,7 +1054,7 @@ function restoreTracker(wb){
       industry:r['Industry']||ex.industry||'', higherTouch:fromYn(r['Higher-touch'])||!!ex.higherTouch, organized:fromYn(r['Organized'])||!!ex.organized,
       midOverride: r['Mid-sized Override']==='Yes'?true : r['Mid-sized Override']==='No'?false : (ex.midOverride??null),
       trigger:r['Trigger']||ex.trigger||'', triggerNote:r['Trigger Note']||ex.triggerNote||'', triggerDate:r['Trigger Date']||ex.triggerDate||'', provider:r['Current Provider']||ex.provider||'', renewalDate:r['Renewal Date']||ex.renewalDate||'', renewalDismissed:r['Renewal Dismissed']||ex.renewalDismissed||'', emailBlocked:fromYn(r['Emails Paused'])||!!ex.emailBlocked}); }
-  const touches={}; for (const t of T){ (touches[t['PT_ID']] ||= []).push({step:t['Step ID'], ch:Object.keys(CH_LABEL).find(k=>CH_LABEL[k]===t['Channel'])||t['Channel'], label:t['Step'], date:toYmd(t['Date']), outcome:t['Outcome'], at:t['Logged At'], ...(t['Logged From']==='Run sheet'?{sheet:true}:{}), ...(t['Earlier cadence']?{archived:true, track:t['Earlier cadence']}:{})}); }
+  const touches={}; for (const t of T){ (touches[t['PT_ID']] ||= []).push({step:t['Step ID'], ch:Object.keys(CH_LABEL).find(k=>CH_LABEL[k]===t['Channel'])||t['Channel'], label:t['Step'], date:toYmd(t['Date']), outcome:t['Outcome'], at:t['Logged At'], ...(t['Logged From']==='Run sheet'?{sheet:true}:{}), ...(t['Earlier cadence']?{archived:true, track:t['Earlier cadence']}:{}), ...(t['Reply Logged']?{replyDate:toYmd(t['Reply Logged'])}:{}), ...(t['Auto-reply']?{autoReply:t['Auto-reply']}:{})}); }
   const byId=new Map(DB.contacts.map(c=>[c.id,c])); let added=0, updated=0, kept=0, overlap=0, bothOwned=0;
   const byEmail=new Map(), byNameCo=new Map(); for (const c of DB.contacts){ if (c.email) byEmail.set(c.email,c); byNameCo.set(norm(c.name)+'|'+c.companyKey, c); }
   for (const r of C){
@@ -964,7 +1065,7 @@ function restoreTracker(wb){
       tzOverride:ZONES[r['TZ Override']]?r['TZ Override']:'', startDate:toYmd(r['Cadence Start']), revisitDate:toYmd(r['Revisit Date']),
       discoveryDate:r['Discovery Date']||'', pauseReason:r['Pause Reason']||'', phoneBad:fromYn(r['Phone Bad']), emailBad:fromYn(r['Email Bad']), lastContacted:r['Last Contacted (import)']||'',
       priorStatus:r['Prior Status (import)']||'', notes:r['Notes']||'', touches:(touches[id]||[]).filter(t=>!t.archived), pastTouches:(touches[id]||[]).filter(t=>t.archived).map(({archived,...t})=>({...t, archived:true})), emailBlocked:fromYn(r['Email Blocked']),
-      recalls:safeJson(r['Call-backs (data)'],[]), bounces:safeJson(r['Bounces (data)'],[]), alsoOn:r['Both Reps Had It']||'', updatedAt:Date.parse(r['Updated At'])||0, createdAt:Date.now()};
+      recalls:safeJson(r['Call-backs (data)'],[]), bounces:safeJson(r['Bounces (data)'],[]), alsoOn:r['Both Reps Had It']||'', referredBy:r['Referred By']||'', updatedAt:Date.parse(r['Updated At'])||0, createdAt:Date.now()};
     if (!DB.companies[inc.companyKey]) DB.companies[inc.companyKey]={key:inc.companyKey,name:r['Company']||inc.companyKey,state:r['State']||'',employees:num(r['Employees']),annualHires:num(r['Est Annual Hires']),higherTouch:false,organized:false,midOverride:null,trigger:'',triggerNote:''};
     if (inc.status==='Attempting' && !inc.startDate) inc.status='New';
     let ex=byId.get(id);
@@ -1160,8 +1261,8 @@ function renderToday(){
     </div>
     <div class="zonestrip" style="margin-top:10px">${strip}</div>
   </div>`;
-  h += `<div class="card" style="margin-top:12px"><div class="filters" style="margin:0"><b>Got a bounce-back?</b><input type="text" id="bounceQ" placeholder="Paste the bounce message, the address, or a name" style="flex:1;min-width:240px"><button class="btn" data-act="bounceFind">Find contact</button></div>
-    ${UI.bounceHits?.length?`<div class="seg" style="margin-top:8px">${UI.bounceHits.map(id=>{ const x=DB.contacts.find(y=>y.id===id); return x?`<button class="btn sm" data-act="bounceOpen" data-id="${x.id}">${esc(x.name)} · ${esc(x.email)}</button>`:''; }).join('')}</div>`:''}</div>`;
+  h += `<div class="card" style="margin-top:12px"><div class="filters" style="margin:0"><b>Got an email back?</b><textarea id="bounceQ" rows="1" placeholder="Paste the reply, auto-reply or bounce (or just their address or name)" style="flex:1;min-width:240px;min-height:36px;height:36px"></textarea><button class="btn" data-act="bounceFind">Find contact</button></div><p class="small muted" style="margin:6px 0 0">For replies that come in after you clicked Sent: interested, not now, wrong person, unsubscribe, out of office, left the company or a bounce.</p>
+    ${UI.bounceHits?.length?`<div class="seg" style="margin-top:8px">${UI.bounceHits.map(id=>{ const x=DB.contacts.find(y=>y.id===id); return x?`<button class="btn sm" data-act="replyOpen" data-id="${x.id}">${esc(x.name)} · ${esc(x.email)}</button>`:''; }).join('')}</div>`:''}</div>`;
   if (m.recalls.length){ h += `<h2>Scheduled call-backs <span class="count">${m.recalls.length}</span></h2><p class="small muted" style="margin-top:-4px">Fixed times: these come before everything else. No answer sets one retry for tomorrow at the same time (up to 3 tries).</p>` + m.recalls.map(x=>taskRecall(x,all)).join(''); }
   if (m.needEmail.length){ h += `<h2>Need a new email address <span class="count">${m.needEmail.length}</span></h2><p class="small muted" style="margin-top:-4px">These bounced. Their emails are paused and calls and LinkedIn continue. Add a working address to restart emails.</p><div class="seg">${m.needEmail.map(c=>`<button class="btn sm" data-act="bounceOpen" data-id="${c.id}">${esc(c.name)} · ${esc(company(c).name)}</button>`).join('')}</div>`; }
   h += `<h2>1 · Calls <span class="count">${m.calls.length}</span></h2><p class="small muted" style="margin-top:-4px">Sorted: prospects in their best calling window right now first, then east to west. The Run Sheet tab assigns each call to a time block.</p>`;
@@ -1183,7 +1284,7 @@ function renderToday(){
 }
 function who(c, all){
   const co=company(c), o=optimal(co);
-  return `<span class="name" data-act="open" data-id="${c.id}">${esc(c.name)}</span> <span class="opt opt${o}" title="Optimal score">${o}</span>${c.source==='Old lead'?' <span class="tag warn">Old lead</span>':''}${c.alsoOn?' <span class="tag bad" title="'+esc(c.alsoOn)+'">Both had it</span>':''}${all?` <span class="tag">${esc(repName(c.owner))}</span>`:''}<br>
+  return `<span class="name" data-act="open" data-id="${c.id}">${esc(c.name)}</span> <span class="opt opt${o}" title="Optimal score">${o}</span>${c.source==='Old lead'?' <span class="tag warn">Old lead</span>':''}${c.alsoOn?' <span class="tag bad" title="'+esc(c.alsoOn)+'">Both had it</span>':''}${c.referredBy?` <span class="tag good">Referred by ${esc(c.referredBy)}</span>`:''}${all?` <span class="tag">${esc(repName(c.owner))}</span>`:''}<br>
   <span class="small muted">${esc(c.title)}</span><br><span class="small">${esc(co.name)}${co.state?' · '+esc(co.state):''}${co.trigger?` · <span class="tag good">${esc(co.trigger)}</span>`:''}</span>`;
 }
 function stepLine(it){ const late=daysBetween(it.due,todayStr()); return `<b>${esc(it.step.label)}</b>${late>0?` <span class="tag bad">${late}d overdue</span>`:''}${it.behind?` <span class="tag">+${it.behind} more behind</span>`:''}<br><span class="small muted">${TRACK_LABEL[it.c.track]||'Cold cadence'} · day ${it.step.day}</span>`; }
@@ -1475,7 +1576,7 @@ function kpiCompute(list, from, to){
     let any=false, resp=false;
     for (const t of allTouches(c)){ if (!t.date || t.date<from || t.date>to || t.outcome==='Skip') continue; any=true;
       if (t.ch==='call'){ k.dials++; if (LIVE.has(t.outcome)) k.live++; if (CONVO.has(t.outcome)) k.convo++; if (t.outcome==='Left voicemail') k.vm++; if (/^Gatekeeper/.test(t.outcome)) k.gk++; }
-      else if (t.ch==='email'){ k.emails++; if (t.outcome==='Replied'||t.outcome==='Meeting booked') k.replies++; if (t.outcome==='Opted out') k.optout++; }
+      else if (t.ch==='email'){ if (!String(t.step).startsWith('reply-')) k.emails++; if (t.outcome==='Replied'||t.outcome==='Meeting booked') k.replies++; if (t.outcome==='Opted out') k.optout++; }
       else { k.li++; if (t.outcome==='Accepted') k.liAcc++; if (t.outcome==='Replied') k.liRep++; }
       if (RESPONSE.has(t.outcome)) resp=true; }
     if (any) k.touched++; if (resp) k.reached++;
@@ -1489,10 +1590,11 @@ function kpiSteps(list, from, to){
   const rows=new Map();
   for (const [tk, st] of Object.entries(TRACKS)) for (const s of st) rows.set(`${tk}|${s.id}`, {track:TRACK_LABEL[tk], day:s.day, label:s.label, ch:s.ch, done:0, resp:0, meet:0});
   rows.set('recall', {track:'Call-backs', day:'', label:'Scheduled call-backs', ch:'call', done:0, resp:0, meet:0});
+  rows.set('reply', {track:'Other', day:'', label:'Email replies with no send logged', ch:'email', done:0, resp:0, meet:0});
   for (const c of list){
     const tk=c.track||trackFor(c), fr=firstResponse(c), booked=c.status==='Discovery booked';
     for (const t of allTouches(c)){ if (!t.date || t.date<from || t.date>to || t.outcome==='Skip') continue;
-      const key = String(t.step).startsWith('recall-') ? 'recall' : `${t.track||tk}|${t.step}`;
+      const key = String(t.step).startsWith('recall-') ? 'recall' : String(t.step).startsWith('reply-') ? 'reply' : `${t.track||tk}|${t.step}`;
       if (!rows.has(key)) rows.set(key, {track:TRACK_LABEL[tk]||tk, day:'', label:`${t.label} (removed step)`, ch:t.ch, done:0, resp:0, meet:0});
       const r=rows.get(key); r.done++; if (RESPONSE.has(t.outcome) || (t.ch==='linkedin' && t.outcome==='Accepted')) r.resp++; if (t===fr && booked) r.meet++; }
   }
@@ -1611,7 +1713,7 @@ function renderDrawer(){
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
       ${c.status==='Attempting'?`<button class="btn sm" data-act="stop" data-id="${c.id}">Stop cadence</button>`:`<button class="btn sm primary" data-act="startOne" data-id="${c.id}">${(c.touches||[]).length?'Restart':'Start'} ${c.source==='Old lead'?'re-engage track':'cold cadence'} today</button>`}
       ${c.status==='Paused'?`<button class="btn sm" data-act="setStatus" data-id="${c.id}" data-status="New">Resume (back to queue)</button>`:''}
-      ${(c.touches||[]).length?`<button class="btn sm" data-act="undo" data-id="${c.id}">Undo last touch</button>`:''}
+      ${(c.touches||[]).length||c.lastReply?`<button class="btn sm" data-act="undo" data-id="${c.id}">${c.lastReply?'Undo last reply / touch':'Undo last touch'}</button>`:''}
     </div>
     ${n?`<div class="card" style="margin-bottom:12px"><b>Next:</b> ${esc(n.step.label)} · ${prettyDate(n.due)}</div>`:''}
     <h3>Call-backs</h3>${pendingRecalls(c).length?`<div class="hist">${pendingRecalls(c).map(r=>`<div>${prettyDate(r.date)} · <b>${fmtHour(hrs(r.time))}</b> your time (their ${esc(r.their)})${r.note?' · '+esc(r.note):''} <button class="btn sm" data-act="recall" data-id="${c.id}" data-rid="${r.id}" data-out="Reschedule">Reschedule</button> <button class="btn sm bad" data-act="recall" data-id="${c.id}" data-rid="${r.id}" data-out="Cancel">Cancel</button></div>`).join('')}</div>`:'<div class="small muted">None scheduled.</div>'}
@@ -1624,7 +1726,7 @@ function renderDrawer(){
       <label>Time zone<select data-cf="tzOverride"><option value="">Auto (${esc(z.src)})</option>${Object.entries(ZONES).map(([k,v])=>`<option value="${k}" ${c.tzOverride===k?'selected':''}>${v.label}</option>`).join('')}</select></label>
       <label>Source<select data-cf="source"><option ${c.source==='ZoomInfo'?'selected':''}>ZoomInfo</option><option ${c.source==='Old lead'?'selected':''}>Old lead</option></select></label>
       ${c.status==='Attempting'?`<label>Cadence start<input type="date" data-cf="startDate" value="${esc(c.startDate)}"></label>`:''}
-      <div class="small" style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${c.emailBad?'<span class="tag bad">Email bounced: add a new address</span>':''}${c.emailBlocked||co.emailBlocked?'<span class="tag bad">Blocked by their server</span>':''}<button class="btn sm" data-act="bounceOpen" data-id="${c.id}">Report a bounce</button>
+      <div class="small" style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${c.emailBad?'<span class="tag bad">Email bounced: add a new address</span>':''}${c.emailBlocked||co.emailBlocked?'<span class="tag bad">Blocked by their server</span>':''}<button class="btn sm" data-act="replyOpen" data-id="${c.id}">Log an email reply</button><button class="btn sm" data-act="bounceOpen" data-id="${c.id}">Report a bounce</button>
         <label class="chk"><input type="checkbox" data-cf2="emailBlocked" ${c.emailBlocked?'checked':''}> Pause emails to this contact</label>${co.emailBlocked?`<label class="chk"><input type="checkbox" data-cof="emailBlocked" checked> Pause emails to everyone at ${esc(co.name)}</label>`:''}</div>
       <label style="grid-column:1/-1">Notes<textarea data-cf="notes" style="min-height:70px">${esc(c.notes||'')}</textarea></label>
     </div>
@@ -1639,7 +1741,7 @@ function renderDrawer(){
       ${cinp('triggerNote','Trigger wording (fills [Trigger])')}${cinp('provider','Current provider')}${cinp('renewalDate','Contract renewal','date')}
     </div>
     <p class="small muted">Higher-touch: values an account manager and proactive service. Organized: someone owns screening compliance and the process is written down. Changes apply to every contact at ${esc(co.name)}.</p>
-    <h3>Touch history (${allTouches(c).length})</h3><div class="hist">${allTouches(c).length?allTouches(c).slice().reverse().map(t=>`<div>${prettyDate(t.date)} · ${esc(CH_LABEL[t.ch]||t.ch)} · ${esc(t.label)} → <b>${esc(t.outcome)}</b>${t.archived?' <span class="small muted">(earlier cadence)</span>':''}${t.ch==='email'&&t.outcome==='Sent'&&!t.archived?` <button class="btn sm" data-act="bounceOpen" data-id="${c.id}" data-step="${esc(t.step)}">Bounced?</button>`:''}</div>`).join(''):'<div class="muted">No touches yet.</div>'}</div>
+    <h3>Touch history (${allTouches(c).length})</h3><div class="hist">${allTouches(c).length?allTouches(c).slice().reverse().map(t=>`<div>${prettyDate(t.date)} · ${esc(CH_LABEL[t.ch]||t.ch)} · ${esc(t.label)} → <b>${esc(t.outcome)}</b>${t.replyDate&&t.replyDate!==t.date?` <span class="small muted">(reply logged ${prettyDate(t.replyDate)})</span>`:''}${t.autoReply?` <span class="tag warn">${esc(t.autoReply)}</span>`:''}${t.ch==='email'&&t.outcome==='Sent'&&!t.archived?` <button class="btn sm" data-act="replyOpen" data-id="${c.id}">Replied?</button>`:''}${t.archived?' <span class="small muted">(earlier cadence)</span>':''}${t.ch==='email'&&t.outcome==='Sent'&&!t.archived?` <button class="btn sm" data-act="bounceOpen" data-id="${c.id}" data-step="${esc(t.step)}">Bounced?</button>`:''}</div>`).join(''):'<div class="muted">No touches yet.</div>'}</div>
     ${c.lastContacted||c.priorStatus?`<p class="small muted">From import: last contacted ${esc(c.lastContacted||'?')} · prior status ${esc(c.priorStatus||'?')}</p>`:''}
     <div style="margin-top:16px"><button class="btn sm bad" data-act="deleteOne" data-id="${c.id}">Delete contact</button></div>
   </div>`;
@@ -1676,6 +1778,7 @@ function renderModal(){
       <p class="small" id="cbYour"></p>
       <div style="display:flex;gap:8px"><button class="btn primary" data-act="cbSave">Save call-back</button><button class="btn" data-act="closeModal">Cancel</button></div></div>`;
     updateCbYour();
+  } else if (m.type==='reply'){ renderReplyModal(host, c, m);
   } else if (m.type==='bounce'){
     const sug=emailSuggestions(c), bs=bounceStats();
     host.innerHTML = `<div class="modal-back" data-act="closeModal"></div><div class="modal">
@@ -1755,12 +1858,15 @@ document.addEventListener('click', e=>{
       else scheduleRecall(cc, date, repT, note, 'them');
       UI.modal=null; save(); render(); toast(`Call-back set: ${prettyDate(date)} at ${fmtHour(hrs(repT))} your time`); } break;
     case 'bounceFind': { const q=($('#bounceQ').value||'').trim(); if (!q) return;
-      const found=new Set((q.toLowerCase().match(/[\w.+'-]+@[\w-]+(\.[\w-]+)+/g)||[]).map(x=>x.replace(/[.,;]+$/,'')));
-      let hits = found.size ? DB.contacts.filter(x=>x.email && found.has(x.email)) : [];
-      if (!hits.length && !found.size) hits = DB.contacts.filter(x=>`${x.name} ${x.email}`.toLowerCase().includes(q.toLowerCase()));
+      const hits=findContacts(q); UI.replyText=q;
       if (!hits.length){ UI.bounceHits=[]; render(); return toast('No contact in the app matches that address or name'); }
-      if (hits.length===1){ UI.bounceHits=[]; render(); UI.modal={type:'bounce', cid:hits[0].id}; renderModal(); }
+      if (hits.length===1){ UI.bounceHits=[]; render(); UI.modal={type:'reply', cid:hits[0].id, detected:detectReply(q)}; renderModal(); }
       else { UI.bounceHits=hits.slice(0,8).map(x=>x.id); render(); } } break;
+    case 'replyOpen': if (c){ const q=UI.replyText||''; UI.modal={type:'reply', cid:c.id, detected: q && findContacts(q).some(x=>x.id===c.id) ? detectReply(q) : null}; renderModal(); } break;
+    case 'rSave': { const m=UI.modal, cc=DB.contacts.find(x=>x.id===m.cid); const type=document.querySelector('input[name=rType]:checked')?.value; if (!type) return toast('Pick what kind of reply it is');
+      if (type==='bounce'){ UI.modal={type:'bounce', cid:cc.id, stepId:lastSentEmail(cc)?.step||''}; renderModal(); break; }
+      const msg=applyReply(cc, type, {revisit:$('#rRevisit')?.value, back:$('#rBack')?.value, newName:$('#rnName')?.value, newTitle:$('#rnTitle')?.value, newEmail:$('#rnEmail')?.value, note:$('#rNote')?.value});
+      UI.modal=null; UI.bounceHits=[]; UI.replyText=''; render(); toast(msg); } break;
     case 'bounceOpen': if (c){ UI.modal={type:'bounce', cid:c.id, stepId:el.dataset.step||''}; renderModal(); } break;
     case 'bPick': $('#bNew').value=el.dataset.email; break;
     case 'bSave': { const m=UI.modal, cc=DB.contacts.find(x=>x.id===m.cid); const reason=document.querySelector('input[name=bReason]:checked')?.value||'hard';
@@ -1831,6 +1937,7 @@ const fmt24 = h => { h=Math.min(23.99,Math.max(0,h)); const hh=Math.floor(h), mm
 document.addEventListener('input', e=>{ const el=e.target; if (el.id==='cbDate'||el.id==='cbTime') return updateCbYour(); if (el.dataset.filter==='q'){ UI.f.q=el.value; const pos=el.selectionStart; render(); const n=$('[data-filter="q"]'); if(n){ n.focus(); n.setSelectionRange(pos,pos); } } });
 document.addEventListener('change', async e=>{
   const el=e.target, d=el.dataset;
+  if (el.name==='rType') return replyFields();
   if (el.name==='bReason'){ const h=$('#bHard'); if (h) h.style.display = el.value==='hard' ? '' : 'none'; return; }
   if (el.id==='cbDate'||el.id==='cbTime'||el.name==='cbBy') return updateCbYour();
   if (el.id==='repSel'){ DB.settings.currentRep=el.value; UI.selected.clear(); save(false); render(); return; }
