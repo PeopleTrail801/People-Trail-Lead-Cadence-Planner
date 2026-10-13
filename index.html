@@ -39,6 +39,15 @@ h3{font-size:14px;margin:16px 0 6px}
 .stats{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 .stat b{font-size:22px;display:block}
 .stat > .small{display:block;margin-top:2px}
+:root{--prime:#b7860b;--prime-bg:#fdf1c7;--prime-ink:#6b4e00;--rfp:#17784a;--rfp-bg:#dff3e7;--rfp-ink:#11603a;--small:#2563eb;--small-bg:#e3ecff;--small-ink:#1d4ed8}
+@media (prefers-color-scheme:dark){:root{--prime:#e0b23a;--prime-bg:#3a2f0e;--prime-ink:#f3d27a;--rfp:#4fc58a;--rfp-bg:#123326;--rfp-ink:#7fdcab;--small:#6b9bff;--small-bg:#16244a;--small-ink:#a9c3ff}}
+.band{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;border:1px solid;white-space:nowrap;vertical-align:1px}
+.band-prime{background:var(--prime-bg);color:var(--prime-ink);border-color:var(--prime)}
+.band-rfp{background:var(--rfp-bg);color:var(--rfp-ink);border-color:var(--rfp)}
+.band-small{background:var(--small-bg);color:var(--small-ink);border-color:var(--small)}
+.task.band-prime-row{border-left:5px solid var(--prime)} .task.band-rfp-row{border-left:5px solid var(--rfp)} .task.band-small-row{border-left:5px solid var(--small)}
+tr.band-prime-row td:first-child{box-shadow:inset 5px 0 var(--prime)} tr.band-rfp-row td:first-child{box-shadow:inset 5px 0 var(--rfp)} tr.band-small-row td:first-child{box-shadow:inset 5px 0 var(--small)}
+.li-state{font-size:11px}
 .stat.over b{color:var(--bad)}
 .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:7px 12px;border-radius:8px;font:inherit;font-weight:600;cursor:pointer;text-decoration:none;white-space:nowrap}
 .btn:hover{border-color:var(--muted)}
@@ -363,7 +372,7 @@ const CH_LABEL = {call:'Call', email:'Email', linkedin:'LinkedIn'};
 const OUTCOMES = {
   call: ['Connected','Meeting booked','Call back','Left voicemail','No answer','Gatekeeper','Wrong number','Not the right person','Do not call','Skip'],
   email:['Sent','Replied','Meeting booked','Bounced','Opted out','Skip'],
-  linkedin:['Done','Accepted','Replied','Skip'],
+  linkedin:['Done','Followed','Follow requested','Accepted','Replied','Skip'],
 };
 const STOP_CONNECT = new Set(['Connected','Replied','Call back requested']);
 const LIVE = new Set(['Connected','Meeting booked','Not the right person','Do not call','Call back requested']);
@@ -380,6 +389,7 @@ const DEFAULT_SETTINGS = {
   mid:{min:250, max:3000},
   connectRate:12,
   goals:{discoveryMonth:12.5},
+  spend:{pricePerCheck:45, primeMin:10000, primeMax:150000},
 };
 let DB = {contacts:[], companies:{}, settings:structuredClone(DEFAULT_SETTINGS), custom:{}, lastExport:null, lastChange:null, setupDone:false};
 const UI = {tab:'today', f:{q:'',owner:'mine',zones:new Set(),status:'',minOpt:0,persona:'',source:'',state:''}, sort:'priority', selected:new Set(), drawer:null, draft:null, storageOk:true,
@@ -438,7 +448,7 @@ async function load(){
     DB = Object.assign(DB, data);
     const ds = structuredClone(DEFAULT_SETTINGS), s = data.settings || {};
     DB.settings = Object.assign(ds, s);
-    for (const k of ['caps','windows','rates','mid','goals']) DB.settings[k] = Object.assign(structuredClone(DEFAULT_SETTINGS[k]), s[k]||{});
+    for (const k of ['caps','windows','rates','mid','goals','spend']) DB.settings[k] = Object.assign(structuredClone(DEFAULT_SETTINGS[k]), s[k]||{});
     if (data.setupDone===undefined) DB.setupDone = true; /* browsers in use before the first-run screen existed */
   }
   try { await navigator.storage?.persist?.(); } catch(e){}
@@ -467,10 +477,52 @@ function persona(c){ return (c.personaOverride && PERSONAS[c.personaOverride]) ?
 function repObj(id){ const s=DB.settings; return s.reps.find(r=>r.id===(id||s.currentRep)) || s.reps[0] || {id:'',name:'',phone:''}; }
 function repName(id){ return DB.settings.reps.find(r=>r.id===id)?.name || 'Unassigned'; }
 function mine(c){ const cur=DB.settings.currentRep; return cur==='all' || c.owner===cur; }
+/* ---------- Account size: estimated annual check spend ----------
+   Annual checks ≈ annual hires (one screen per hire). Hires come from the file's "Est. annual hires";
+   when that's blank, employees × the industry's annual hiring rate (BLS JOLTS benchmarks, directional only).
+   Spend = checks × average revenue per check (Settings). Prime = $10K–$150K; above that is RFP territory. */
+const HIRE_RATES = [
+  [/state government|utilit|electric power|water supply|natural gas distribution/, .15, 'State government / utilities'],
+  [/local government|municipal|county government|city government|public transit|transit authority|airport/, .18, 'Local government / transit / airports'],
+  [/pipeline/, .20, 'Pipeline'],
+  [/insurance|title (company|insurance|agency)|bank holding|financial holding/, .22, 'Insurance / title / financial holding'],
+  [/fuel|petroleum (products|distribution|marketing)|gas station|convenience store/, .25, 'Fuel services'],
+  [/hospital|health system|engineering|architect|design (firm|services)/, .28, 'Hospitals / engineering & design'],
+  [/cruise|marine|maritime|aviation|airline|aerospace|distribution|wholesale/, .30, 'Cruise / marine / aviation / distribution'],
+  [/physician|clinic|dental|specialty care|medical practice|outpatient|urgent care/, .35, 'Physician & specialty clinics'],
+  [/civil (construction|engineering)|heavy (civil|construction)|highway|infrastructure construction/, .55, 'Civil construction'],
+  [/casino|gaming|gambling/, .60, 'Gaming'],
+  [/trucking|truckload|motor carrier/, .60, 'Trucking carriers'],
+  [/agricultur|farm|real estate|waste|environmental services|freight|logistic|3pl|post-acute|skilled nursing|nursing (home|facilit)|home health|hospice|assisted living|senior living|long-term care/, .40, 'Agriculture / real estate / waste / logistics / post-acute'],
+  [/construction|contractor|homebuild|home improvement|hardware store|building materials retail/, .50, 'Construction / home-improvement retail'],
+  [/hotel|resort|lodging|hospitality/, .65, 'Hotels & resorts'],
+  [/restaurant|food service|foodservice|quick service|fast food|bars? (and|&)/, .85, 'Restaurants'],
+];
+function industryRate(ind){ const s=String(ind||'').toLowerCase(); if (!s) return null; for (const [re, r, label] of HIRE_RATES) if (re.test(s)) return {rate:r, label}; return null; }
+function estHires(co){
+  const h=+co.annualHires||0; if (h) return {n:h, est:false, note:'from the lead file'};
+  const emp=+co.employees||0, ir=industryRate(co.industry);
+  if (emp && ir) return {n:Math.round(emp*ir.rate), est:true, note:`estimated: ${emp.toLocaleString()} employees × ${Math.round(ir.rate*100)}% (${ir.label})`};
+  return {n:0, est:false, note: emp ? `no estimate: industry "${co.industry||'blank'}" has no hiring rate` : 'no hire estimate'};
+}
+const money = n => n>=1e6 ? `$${(n/1e6).toFixed(1)}M` : n>=1000 ? `$${Math.round(n/1000)}K` : `$${Math.round(n)}`;
+const BANDS = {prime:{label:'Prime', cls:'band-prime'}, rfp:{label:'RFP', cls:'band-rfp'}, small:{label:'Small', cls:'band-small'}};
+function acctSize(co){
+  const s=DB.settings.spend, h=estHires(co); if (!h.n) return {band:'', spend:0, hires:0, note:h.note};
+  const spend=h.n*(+s.pricePerCheck||0), band = spend>s.primeMax ? 'rfp' : spend>=s.primeMin ? 'prime' : 'small';
+  return {band, spend, hires:h.n, est:h.est, note:h.note,
+    title:`${BANDS[band].label}: about ${money(spend)} a year in checks (${h.n.toLocaleString()} checks${h.est?' estimated':''} × $${s.pricePerCheck}). Prime is ${money(s.primeMin)}–${money(s.primeMax)}; above that is RFP.`};
+}
+function bandTag(co){ const a=acctSize(co); return a.band ? `<span class="band ${BANDS[a.band].cls}" title="${esc(a.title)}">${BANDS[a.band].label} · ${money(a.spend)}${a.est?'*':''}</span>` : ''; }
+const bandCls = c => { const a=acctSize(company(c)); return a.band ? BANDS[a.band].cls+'-row' : ''; };
+
+/* Mid-sized green light = Prime account size ($10K–$150K a year in checks, from the playbook). */
 function midAuto(co){
-  const h = +co.annualHires || 0, m=DB.settings.mid;
-  if (h) { if (h<m.min) return {v:false,note:`Below mid-sized range (under ${m.min.toLocaleString()} hires a year)`}; if (h>m.max) return {v:false,note:`Above mid-sized range (over ${m.max.toLocaleString()} hires a year): likely complex or regulated lane`}; return {v:true,note:'In the mid-sized range'}; }
-  return {v:false,note:'No hire estimate: set manually'};
+  const a=acctSize(co), sp=DB.settings.spend;
+  if (!a.band) return {v:false, note:'No size estimate: set manually, or add estimated annual hires (or employees and industry)'};
+  if (a.band==='prime') return {v:true, note:`Prime account (about ${money(a.spend)} a year in checks)`};
+  if (a.band==='small') return {v:false, note:`Below prime (about ${money(a.spend)} a year; prime starts at ${money(sp.primeMin)})`};
+  return {v:false, note:`Above prime (about ${money(a.spend)} a year): RFP lane`};
 }
 const isMid = co => co.midOverride===true ? true : co.midOverride===false ? false : midAuto(co).v;
 const optimal = co => (isMid(co)?1:0) + (co.higherTouch?1:0) + (co.organized?1:0);
@@ -559,6 +611,12 @@ function applyOutcome(c, stepId, outcome, date, quiet){
   date = date || todayStr();
   c.touches.push({step:stepId, ch:st.ch, label:st.label, date, outcome, at:new Date().toISOString()});
   let msg='';
+  if (st.ch==='linkedin'){ const prev=c.liState||'';
+    if (outcome==='Accepted' || outcome==='Replied') c.liState='Connected';
+    else if (outcome==='Followed') c.liState = prev==='Connected' ? prev : 'Following';
+    else if (outcome==='Follow requested') c.liState = ['Connected','Following'].includes(prev) ? prev : 'Follow requested';
+    else if (outcome==='Done' && st.li && String(st.li).startsWith('connect') && !prev) c.liState='Request sent';
+    if (c.liState!==prev) c.liSince=date; }
   if (outcome==='Meeting booked'){ c.status='Discovery booked'; c.discoveryDate=date; pauseColleagues(c, `Colleague ${c.name} booked discovery`); msg=`Discovery booked: add ${c.name} to HubSpot`; }
   else if (STOP_CONNECT.has(outcome)){ c.status='Connected'; pauseColleagues(c, `Colleague ${c.name} engaged`); msg=`${c.name} moved to Connected; colleagues paused`; }
   else if (outcome==='Do not call' || outcome==='Opted out'){ c.status='Do not contact'; msg=`${c.name} marked do not contact`; }
@@ -980,7 +1038,7 @@ function buildTrackerWorkbook(){
       'Discovery Date':c.discoveryDate||'','Pause Reason':c.pauseReason,'Phone Bad':yn(c.phoneBad),'Email Bad':yn(c.emailBad),'Last Contacted (import)':c.lastContacted,
       'Prior Status (import)':c.priorStatus,'Notes':c.notes,'Email Blocked':yn(c.emailBlocked),
       'Next Call-back':(()=>{ const r=pendingRecalls(c)[0]; return r?`${r.date} ${fmtHour(hrs(r.time))} (their ${r.their})`:''; })(),
-      'Call-backs (data)':JSON.stringify(c.recalls||[]),'Bounces (data)':JSON.stringify(c.bounces||[]),'Both Reps Had It':c.alsoOn||'','Referred By':c.referredBy||'','Updated At':new Date(c.updatedAt||Date.now()).toISOString()}; });
+      'Call-backs (data)':JSON.stringify(c.recalls||[]),'Bounces (data)':JSON.stringify(c.bounces||[]),'Both Reps Had It':c.alsoOn||'','Referred By':c.referredBy||'','LinkedIn Status':c.liState||'','LinkedIn Since':c.liSince||'','Updated At':new Date(c.updatedAt||Date.now()).toISOString()}; });
   const T = []; for (const c of DB.contacts) for (const t of allTouches(c)) T.push({'PT_ID':c.id,'Contact':c.name,'Company':company(c).name,'Date':t.date,'Step ID':t.step,'Channel':CH_LABEL[t.ch]||t.ch,'Step':t.label,'Outcome':t.outcome,'Logged At':t.at,'Logged From':t.sheet?'Run sheet':'App','Earlier cadence':t.archived?(t.track||'cold'):'','Reply Logged':t.replyDate||'','Auto-reply':t.autoReply||''});
   const K = Object.values(DB.companies).map(co=>({'Company Key':co.key,'Company':co.name,'State':co.state,'City':co.city,'Employees':co.employees,'Est Annual Hires':co.annualHires,'Industry':co.industry,
     'Mid-sized':isMid(co)?'Yes':'','Mid-sized Override':co.midOverride===true?'Yes':co.midOverride===false?'No':'','Higher-touch':yn(co.higherTouch),'Organized':yn(co.organized),
@@ -1005,7 +1063,7 @@ function readConfig(wb){
 }
 /* Shared = team playbook (scripts, cadence, personas, windows, scoring). Personal = your schedule, caps, rates.
    A teammate's tracker only brings the shared part; your own backup brings both. Your rep name and phone never change. */
-const SHARED_SET = ['windows','mid','address','optOut','maxPerCompany'], PERSONAL_SET = ['caps','rates','connectRate','goals'];
+const SHARED_SET = ['windows','mid','address','optOut','maxPerCompany','spend'], PERSONAL_SET = ['caps','rates','connectRate','goals'];
 const sharedPart = (custom, settings) => JSON.stringify({sc:custom?.scripts||{}, tr:custom?.tracks||{}, pe:custom?.personas||{}, st:SHARED_SET.map(k=>settings?.[k])});
 const isPlaceholderRep = n => !String(n||'').trim() || /^rep \d+$/i.test(String(n).trim());
 function mergeReps(incoming){
@@ -1065,7 +1123,7 @@ function restoreTracker(wb){
       tzOverride:ZONES[r['TZ Override']]?r['TZ Override']:'', startDate:toYmd(r['Cadence Start']), revisitDate:toYmd(r['Revisit Date']),
       discoveryDate:r['Discovery Date']||'', pauseReason:r['Pause Reason']||'', phoneBad:fromYn(r['Phone Bad']), emailBad:fromYn(r['Email Bad']), lastContacted:r['Last Contacted (import)']||'',
       priorStatus:r['Prior Status (import)']||'', notes:r['Notes']||'', touches:(touches[id]||[]).filter(t=>!t.archived), pastTouches:(touches[id]||[]).filter(t=>t.archived).map(({archived,...t})=>({...t, archived:true})), emailBlocked:fromYn(r['Email Blocked']),
-      recalls:safeJson(r['Call-backs (data)'],[]), bounces:safeJson(r['Bounces (data)'],[]), alsoOn:r['Both Reps Had It']||'', referredBy:r['Referred By']||'', updatedAt:Date.parse(r['Updated At'])||0, createdAt:Date.now()};
+      recalls:safeJson(r['Call-backs (data)'],[]), bounces:safeJson(r['Bounces (data)'],[]), alsoOn:r['Both Reps Had It']||'', referredBy:r['Referred By']||'', liState:r['LinkedIn Status']||'', liSince:r['LinkedIn Since']||'', updatedAt:Date.parse(r['Updated At'])||0, createdAt:Date.now()};
     if (!DB.companies[inc.companyKey]) DB.companies[inc.companyKey]={key:inc.companyKey,name:r['Company']||inc.companyKey,state:r['State']||'',employees:num(r['Employees']),annualHires:num(r['Est Annual Hires']),higherTouch:false,organized:false,midOverride:null,trigger:'',triggerNote:''};
     if (inc.status==='Attempting' && !inc.startDate) inc.status='New';
     let ex=byId.get(id);
@@ -1086,7 +1144,7 @@ function exportHubspot(list){
     'Company Name':co.name,'State/Region':co.state,'LinkedIn URL':c.linkedin,'Lead Status':c.status,'Contact Owner':repName(c.owner),
     /* Playbook custom properties (slide 30). Map each column to its HubSpot property on import; Optimal score is calculated in HubSpot. */
     'Persona':PERSONAS[persona(c)].label,'Mid-sized':isMid(co)?'true':'false','Higher-touch':co.higherTouch?'true':'false','Organized':co.organized?'true':'false',
-    'Optimal score':optimal(co),'Annual checks (est.)':co.annualHires||'','Current provider':co.provider||'','Renewal date':co.renewalDate||'','Trigger':co.trigger||'',
+    'Optimal score':optimal(co),'Annual checks (est.)':estHires(co).n||'','Est. annual spend':acctSize(co).spend?Math.round(acctSize(co).spend):'','Account size':acctSize(co).band?BANDS[acctSize(co).band].label:'','Current provider':co.provider||'','Renewal date':co.renewalDate||'','Trigger':co.trigger||'',
     'Notes':[`Persona: ${PERSONAS[persona(c)].label}`, `Optimal score: ${optimal(co)}`, co.trigger?`Trigger: ${co.trigger} ${co.triggerNote||''}`:'', co.provider?`Current provider: ${co.provider}`:'', co.renewalDate?`Renewal: ${co.renewalDate}`:'', `Touches: ${(c.touches||[]).length}`, c.notes].filter(Boolean).join(' | ')}; });
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'HubSpot');
   XLSX.writeFile(wb, `hubspot-import-${todayStr()}.csv`, {bookType:'csv'});
@@ -1166,6 +1224,7 @@ function normalizeOutcome(ch, text, done){
     return (t||d) ? 'Sent' : '';
   }
   if (/repl/.test(t)) return 'Replied'; if (/accept/.test(t)) return 'Accepted'; if (/skip/.test(t)) return 'Skip';
+  if (/follow.*req|req.*follow|private/.test(t)) return 'Follow requested'; if (/follow/.test(t)) return 'Followed';
   return (t||d) ? 'Done' : '';
 }
 function importRunSheets(wb){
@@ -1284,7 +1343,7 @@ function renderToday(){
 }
 function who(c, all){
   const co=company(c), o=optimal(co);
-  return `<span class="name" data-act="open" data-id="${c.id}">${esc(c.name)}</span> <span class="opt opt${o}" title="Optimal score">${o}</span>${c.source==='Old lead'?' <span class="tag warn">Old lead</span>':''}${c.alsoOn?' <span class="tag bad" title="'+esc(c.alsoOn)+'">Both had it</span>':''}${c.referredBy?` <span class="tag good">Referred by ${esc(c.referredBy)}</span>`:''}${all?` <span class="tag">${esc(repName(c.owner))}</span>`:''}<br>
+  return `<span class="name" data-act="open" data-id="${c.id}">${esc(c.name)}</span> <span class="opt opt${o}" title="Optimal score">${o}</span> ${bandTag(co)}${c.source==='Old lead'?' <span class="tag warn">Old lead</span>':''}${c.alsoOn?' <span class="tag bad" title="'+esc(c.alsoOn)+'">Both had it</span>':''}${c.referredBy?` <span class="tag good">Referred by ${esc(c.referredBy)}</span>`:''}${all?` <span class="tag">${esc(repName(c.owner))}</span>`:''}<br>
   <span class="small muted">${esc(c.title)}</span><br><span class="small">${esc(co.name)}${co.state?' · '+esc(co.state):''}${co.trigger?` · <span class="tag good">${esc(co.trigger)}</span>`:''}</span>`;
 }
 function stepLine(it){ const late=daysBetween(it.due,todayStr()); return `<b>${esc(it.step.label)}</b>${late>0?` <span class="tag bad">${late}d overdue</span>`:''}${it.behind?` <span class="tag">+${it.behind} more behind</span>`:''}<br><span class="small muted">${TRACK_LABEL[it.c.track]||'Cold cadence'} · day ${it.step.day}</span>`; }
@@ -1302,7 +1361,7 @@ function taskRecall(x, all){
 function taskCall(it, all){
   const c=it.c, z=zoneInfo(c), {opener, vm}=resolveCall(c,it.step), o=OPENERS[opener], v=vm&&VMS[vm];
   const phones = [c.directPhone&&`<a class="btn sm" href="${telHref(c.directPhone)}">Direct ${esc(c.directPhone)}</a>${c.phoneBad?' <span class="tag bad">flagged wrong</span>':''}`, c.businessPhone&&`<a class="btn sm" href="${telHref(c.businessPhone)}">Business ${esc(c.businessPhone)}</a>`].filter(Boolean).join(' ') || '<span class="tag bad">No phone: skip or research</span>';
-  return `<div class="task">
+  return `<div class="task ${bandCls(c)}">
     <div>${who(c,all)}</div>
     <div>${zoneBadge(z.zone)} <b>${z.zone?clockIn(ZONES[z.zone].iana):'?'}</b> their time <span class="win ${it.w.key}">${it.w.label}</span><br><span class="small muted">${windowHint(z.zone)}</span></div>
     <div>${stepLine(it)}<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${phones}</div></div>
@@ -1313,7 +1372,7 @@ function taskCall(it, all){
 function taskEmail(it, all){
   const c=it.c, e=emailFor(c,it.step.email,it.step), href=`mailto:${encodeURIComponent(c.email)}?subject=${encodeURIComponent(e.subject)}&body=${encodeURIComponent(e.body)}`;
   const z=zoneInfo(c).zone; const lands = z ? `Lands ${clockIn(ZONES[z].iana)} their time` : '';
-  return `<div class="task">
+  return `<div class="task ${bandCls(c)}">
     <div>${who(c,all)}</div>
     <div class="small">${c.email?`${esc(c.email)}${c.emailBad?' <span class="tag bad">bounced</span>':''}`:'<span class="tag bad">No email</span>'}<br><span class="muted">Subject: ${esc(e.subject)}</span>${e.thread?'<br><span class="tag warn">Reply in the thread of your earlier email</span>':''}${optimal(company(c))===3?'<br><span class="tag good" title="Playbook: 20 emails a day, 10 of them custom to Optimal-3 accounts">Optimal 3: personalize this one</span>':''}<br>${zoneBadge(z)} <span class="muted">${lands}</span></div>
     <div>${stepLine(it)}<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${c.email?`<a class="btn sm primary" href="${href}">Open in mail app</a>`:''}<button class="btn sm" data-act="copy" data-text="${esc(e.body)}">Copy body</button></div></div>
@@ -1322,9 +1381,9 @@ function taskEmail(it, all){
 }
 function taskLi(it, all){
   const c=it.c, key=resolveLi(c,it.step), s=LINKEDIN[key], txt=fill(s.text,c);
-  return `<div class="task">
+  return `<div class="task ${bandCls(c)}">
     <div>${who(c,all)}</div>
-    <div class="small">${c.linkedin?'Profile on file':c.liKnown?'Profile exists (link not in import): search opens it':'No profile on file: search by name'}</div>
+    <div class="small">${c.linkedin?'Profile on file':c.liKnown?'Profile exists (link not in import): search opens it':'No profile on file: search by name'}${c.liState?`<br><span class="tag ${c.liState==='Connected'||c.liState==='Following'?'good':'warn'} li-state">${esc(c.liState)}${c.liSince?' since '+prettyDate(c.liSince):''}</span>`:''}<br><span class="small muted">Can't connect? <b>Followed</b> if you followed them; <b>Follow requested</b> if the profile is private.</span></div>
     <div>${stepLine(it)}<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><a class="btn sm primary" href="${esc(linkedinUrl(c))}" target="_blank" rel="noopener">Open LinkedIn</a><button class="btn sm" data-act="copy" data-text="${esc(txt)}">Copy message</button></div></div>
     <details class="script full"><summary>${esc(s.name)}</summary><div class="say">${sayHtml(txt)}</div>${it.step.li==='m1'?'<div class="small muted">Not accepted yet? Comment on one of their recent posts instead.</div>':''}${key.startsWith('connect')?'<div class="small muted">Keep it under 200 characters, no pitch.</div>':''}</details>
     ${outBtns(it)}</div>`;
@@ -1395,6 +1454,7 @@ function filteredContacts(){
     if (f.status && c.status!==f.status) return false;
     if (f.minOpt && optimal(co)<f.minOpt) return false;
     if (f.persona && persona(c)!==f.persona) return false;
+    if (f.band && (acctSize(company(c)).band||'none')!==f.band) return false;
     if (f.source==='both' ? !c.alsoOn : (f.source && c.source!==f.source)) return false;
     if (f.state && normState(co.state)!==f.state) return false;
     return true;
@@ -1414,6 +1474,7 @@ function renderLeads(){
     <select data-filter="status"><option value="">Any status</option>${STATUSES.map(x=>`<option ${f.status===x?'selected':''}>${x}</option>`).join('')}</select>
     <select data-filter="minOpt"><option value="0">Any Optimal score</option>${[1,2,3].map(n=>`<option value="${n}" ${+f.minOpt===n?'selected':''}>Optimal ${n}+</option>`).join('')}</select>
     <select data-filter="persona"><option value="">Any persona</option>${Object.entries(PERSONAS).map(([k,p])=>`<option value="${k}" ${f.persona===k?'selected':''}>${p.label}</option>`).join('')}</select>
+    <select data-filter="band"><option value="">Any size</option>${[['prime','Prime ($10K–$150K)'],['rfp','RFP (over $150K)'],['small','Small (under $10K)'],['none','No estimate']].map(([v,l])=>`<option value="${v}" ${f.band===v?'selected':''}>${l}</option>`).join('')}</select>
     <select data-filter="source"><option value="">Any source</option><option ${f.source==='ZoomInfo'?'selected':''}>ZoomInfo</option><option ${f.source==='Old lead'?'selected':''}>Old lead</option><option value="both" ${f.source==='both'?'selected':''}>Both had it</option></select>
     <select data-filter="state"><option value="">Any state</option>${states.map(x=>`<option ${f.state===x?'selected':''}>${x}</option>`).join('')}</select>
     <select data-filter="sort"><option value="priority" ${UI.sort==='priority'?'selected':''}>Sort: priority</option><option value="company" ${UI.sort==='company'?'selected':''}>Sort: company</option><option value="zone" ${UI.sort==='zone'?'selected':''}>Sort: time zone</option><option value="next" ${UI.sort==='next'?'selected':''}>Sort: next due</option><option value="status" ${UI.sort==='status'?'selected':''}>Sort: status</option></select>
@@ -1430,9 +1491,9 @@ function renderLeads(){
   const allSel = shown.every(c=>sel.has(c.id));
   h += `<div class="tablewrap"><table><thead><tr><th><input type="checkbox" data-act="selAll" ${allSel?'checked':''}></th><th>Contact</th><th>Company</th><th>Opt</th><th>Zone · their time</th><th>Persona</th><th>Status</th><th>Next touch</th><th>Owner</th></tr></thead><tbody>`;
   h += shown.map(c=>{ const co=company(c), z=zoneInfo(c), n=nextStep(c), o=optimal(co);
-    return `<tr class="row" data-act="open" data-id="${c.id}"><td data-stop="1"><input type="checkbox" data-act="sel" data-id="${c.id}" ${sel.has(c.id)?'checked':''}></td>
+    return `<tr class="row ${bandCls(c)}" data-act="open" data-id="${c.id}"><td data-stop="1"><input type="checkbox" data-act="sel" data-id="${c.id}" ${sel.has(c.id)?'checked':''}></td>
       <td><b>${esc(c.name)}</b>${c.source==='Old lead'?' <span class="tag warn">Old</span>':''}${c.alsoOn?' <span class="tag bad" title="'+esc(c.alsoOn)+'">Both had it</span>':''}<br><span class="small muted">${esc(c.title)}</span></td>
-      <td>${esc(co.name)}<br><span class="small muted">${[co.state, co.annualHires?`~${(+co.annualHires).toLocaleString()} hires/yr`:'', co.employees?`${(+co.employees).toLocaleString()} emp`:''].filter(Boolean).map(esc).join(' · ')}</span></td>
+      <td>${esc(co.name)} ${bandTag(co)}<br><span class="small muted">${[co.state, estHires(co).n?`~${estHires(co).n.toLocaleString()} hires/yr${estHires(co).est?' (est.)':''}`:'', co.employees?`${(+co.employees).toLocaleString()} emp`:''].filter(Boolean).map(esc).join(' · ')}</span></td>
       <td><span class="opt opt${o}">${o}</span></td>
       <td>${zoneBadge(z.zone)} ${z.zone?clockIn(ZONES[z.zone].iana):''}</td>
       <td class="small">${PERSONAS[persona(c)].label}</td>
@@ -1534,12 +1595,17 @@ function renderSettings(){
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Reps</h3><p class="small muted">Names and phone numbers fill [Rep] and [phone] in scripts and email signatures.</p>
     ${s.reps.map((r,i)=>`<div class="fields" style="margin-bottom:8px"><label>Rep ${i+1} name<input type="text" data-rep="${r.id}" data-rf="name" value="${esc(r.name)}"></label><label>Phone<input type="text" data-rep="${r.id}" data-rf="phone" value="${esc(r.phone)}" placeholder="(801) 555-0100"></label></div>`).join('')}</div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Daily capacity</h3><p class="small muted">The dial target and live-answer rate set how many new contacts a day to start. Email and LinkedIn caps warn you when the cadence would exceed them. Per-hour rates set how many tasks fit in each run-sheet block.${(()=>{ const lr=liveRate(); return lr.n>=30?` Your actual live-answer rate: <b>${(lr.rate*100).toFixed(0)}%</b> on ${lr.n} dials <button class="btn sm" data-act="useRate">Use it</button>`:''; })()}</p>
-    <div class="fields"><label>Daily dial target (cadence dials)<input type="number" data-cap="dials" value="${s.caps.dials}"></label><label>Discovery calls booked per month (goal)<input type="number" step="0.5" data-goal="discoveryMonth" value="${s.goals.discoveryMonth}"></label><label>Expected live-answer rate (%)<input type="number" data-set="connectRate" min="1" max="60" value="${s.connectRate}"></label><label>Cadence emails per day<input type="number" data-cap="emails" value="${s.caps.emails}"></label>
+    <div class="fields"><label>Daily dial target (cadence dials)<input type="number" data-cap="dials" value="${s.caps.dials}"></label><label>Discovery calls booked per month (goal)<input type="number" step="0.5" data-goal="discoveryMonth" value="${s.goals.discoveryMonth}"></label>
+<label>Expected live-answer rate (%)<input type="number" data-set="connectRate" min="1" max="60" value="${s.connectRate}"></label><label>Cadence emails per day<input type="number" data-cap="emails" value="${s.caps.emails}"></label>
     <label>LinkedIn touches per day<input type="number" data-cap="linkedin" value="${s.caps.linkedin}"></label><label>Max active contacts per company<input type="number" data-set="maxPerCompany" value="${s.maxPerCompany}" min="1" max="10"></label>
     <label>Dials per hour<input type="number" data-rate="call" value="${s.rates.call}"></label><label>Emails per hour<input type="number" data-rate="email" value="${s.rates.email}"></label><label>LinkedIn touches per hour<input type="number" data-rate="linkedin" value="${s.rates.linkedin}"></label></div></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Best windows (prospect's local time)</h3><p class="small muted">Ranges like <code>8-11, 16-17</code> or <code>8:30-10:30, 2pm-4pm</code>. "Best" ranks first; "OK" is the fallback.</p>
     <div class="fields">${winInp('call','Calls: best')}${winInp('callOk','Calls: OK')}${winInp('email','Emails: best')}${winInp('emailOk','Emails: OK')}${winInp('linkedin','LinkedIn: best')}${winInp('linkedinOk','LinkedIn: OK')}</div></div>
-  <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Optimal scoring</h3><div class="fields"><label>Mid-sized: minimum annual hires<input type="number" data-mid="min" value="${s.mid.min}"></label><label>Mid-sized: maximum annual hires<input type="number" data-mid="max" value="${s.mid.max}"></label></div></div>
+  <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Optimal scoring and account size</h3><p class="small muted" style="margin-top:0">The Mid-sized green light is set automatically for Prime accounts (gold). You can still override it per company in the contact card.</p><div class="fields">
+      <label>Average revenue per check ($, for account size)<input type="number" step="1" data-spend="pricePerCheck" value="${s.spend.pricePerCheck}"></label>
+      <label>Prime account from ($ a year)<input type="number" step="1000" data-spend="primeMin" value="${s.spend.primeMin}"></label>
+      <label>Prime account up to ($ a year; above = RFP)<input type="number" step="1000" data-spend="primeMax" value="${s.spend.primeMax}"></label>
+      <p class="small muted" style="grid-column:1/-1;margin:0">Account size = estimated annual checks × average revenue per check. <span class="band band-prime">Prime</span> ${money(s.spend.primeMin)}–${money(s.spend.primeMax)} a year · <span class="band band-rfp">RFP</span> above ${money(s.spend.primeMax)} · <span class="band band-small">Small</span> below ${money(s.spend.primeMin)}. At $${s.spend.pricePerCheck} a check, prime is about ${Math.ceil(s.spend.primeMin/(s.spend.pricePerCheck||1)).toLocaleString()}–${Math.floor(s.spend.primeMax/(s.spend.pricePerCheck||1)).toLocaleString()} hires a year. When a lead has no estimated annual hires, the app estimates them from employees × the industry's annual hiring rate (BLS JOLTS benchmarks); those show an asterisk.</p></div></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Email signature</h3><div class="fields"><label style="grid-column:1/-1">Company address line<input type="text" data-set="address" value="${esc(s.address)}"></label></div>
     <label class="chk" style="margin-top:8px"><input type="checkbox" data-set="optOut" ${s.optOut?'checked':''}> Add "Not the right person? Just let me know and I'll stop." before the signature</label></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Data</h3><p class="small muted">${DB.contacts.length} contacts and ${Object.keys(DB.companies).length} companies stored in this browser. The tracker file is your backup and how you share with your teammate; it also carries your script, cadence and schedule edits.</p>
@@ -1569,7 +1635,7 @@ function bizDaysIn(list, from, to){
 function weekdaysBetween(a, b){ let n=0; for (let d=a; d<=b; d=addDays(d,1)){ const w=parseYmd(d).getDay(); if (w && w<6) n++; } return n; }
 const meetingDate = c => c.status==='Discovery booked' ? (c.discoveryDate || lastTouch(c)?.date || '') : '';
 function kpiCompute(list, from, to){
-  const k={dials:0, live:0, vm:0, gk:0, emails:0, replies:0, optout:0, bounces:0, li:0, liAcc:0, liRep:0, convo:0, started:0, meetings:0, meetOpt3:0, meetOpt2:0, touched:0, reached:0};
+  const k={dials:0, live:0, vm:0, gk:0, emails:0, replies:0, optout:0, bounces:0, li:0, liAcc:0, liRep:0, liFol:0, liReq:0, convo:0, started:0, meetings:0, meetOpt3:0, meetOpt2:0, touched:0, reached:0};
   for (const c of list){
     if (c.startDate && c.startDate>=from && c.startDate<=to && c.status!=='New') k.started++;
     const md=meetingDate(c); if (md && md>=from && md<=to){ k.meetings++; const o=optimal(company(c)); if (o===3) k.meetOpt3++; if (o>=2) k.meetOpt2++; }
@@ -1577,7 +1643,7 @@ function kpiCompute(list, from, to){
     for (const t of allTouches(c)){ if (!t.date || t.date<from || t.date>to || t.outcome==='Skip') continue; any=true;
       if (t.ch==='call'){ k.dials++; if (LIVE.has(t.outcome)) k.live++; if (CONVO.has(t.outcome)) k.convo++; if (t.outcome==='Left voicemail') k.vm++; if (/^Gatekeeper/.test(t.outcome)) k.gk++; }
       else if (t.ch==='email'){ if (!String(t.step).startsWith('reply-')) k.emails++; if (t.outcome==='Replied'||t.outcome==='Meeting booked') k.replies++; if (t.outcome==='Opted out') k.optout++; }
-      else { k.li++; if (t.outcome==='Accepted') k.liAcc++; if (t.outcome==='Replied') k.liRep++; }
+      else { k.li++; if (t.outcome==='Accepted') k.liAcc++; if (t.outcome==='Replied') k.liRep++; if (t.outcome==='Followed') k.liFol++; if (t.outcome==='Follow requested') k.liReq++; }
       if (RESPONSE.has(t.outcome)) resp=true; }
     if (any) k.touched++; if (resp) k.reached++;
     for (const x of (c.bounces||[])) if (x.date>=from && x.date<=to) k.bounces++;
@@ -1609,9 +1675,9 @@ function kpiHours(list, from, to){
       const h=Math.min(17, Math.max(7, Math.floor(hourIn(ZONES[z].iana, new Date(t.at))))); b[h].dials++; if (LIVE.has(t.outcome)) b[h].live++; } }
   return {rows:Object.entries(b).map(([h,v])=>({h:+h, label:+h===7?'Before 8am':+h===17?'5pm and later':`${fmtHour(+h)}–${fmtHour(+h+1)}`, ...v})), skipped};
 }
-function sizeBand(co){ const h=+co.annualHires||0, m=DB.settings.mid; if (!h) return [9,'No hire estimate'];
-  if (h<m.min) return [0,`Under ${m.min.toLocaleString()} hires/yr`]; if (h<1000 && m.min<1000) return [1,`${m.min.toLocaleString()}–999`];
-  if (h<=m.max) return [2,`${Math.max(1000,m.min).toLocaleString()}–${m.max.toLocaleString()}`]; if (h<=10000) return [3,`${(m.max+1).toLocaleString()}–10,000`]; return [4,'Over 10,000']; }
+function spendBand(co){ const a=acctSize(co), s=DB.settings.spend; if (!a.band) return [9,'No estimate'];
+  if (a.band==='small') return [0,`Small (under ${money(s.primeMin)})`]; if (a.band==='rfp') return [3,`RFP (over ${money(s.primeMax)})`];
+  const mid=Math.round(Math.sqrt(s.primeMin*s.primeMax)/5000)*5000||50000; return a.spend<mid ? [1,`Prime ${money(s.primeMin)}–${money(mid)}`] : [2,`Prime ${money(mid)}–${money(s.primeMax)}`]; }
 function kpiGroups(list, from, to, keyFn){
   const g=new Map(); for (const c of list){ const [o,l]=keyFn(c); if (!g.has(l)) g.set(l,{o,label:l,list:[]}); g.get(l).list.push(c); }
   return [...g.values()].sort((a,b)=>a.o-b.o).map(x=>({label:x.label, ...kpiCompute(x.list, from, to)})).filter(x=>x.touched||x.meetings);
@@ -1631,7 +1697,7 @@ function kpiModel(){
   return {list, p, from, to, days, sum, weeks, byRep, status, pace,
     steps:kpiSteps(list, from, to), hours:kpiHours(list, from, to),
     persona:kpiGroups(list, from, to, c=>{ const k=persona(c); return [Object.keys(PERSONAS).indexOf(k), PERSONAS[k].label]; }),
-    size:kpiGroups(list, from, to, c=>sizeBand(company(c))),
+    spend:kpiGroups(list, from, to, c=>spendBand(company(c))),
     opt:kpiGroups(list, from, to, c=>{ const o=optimal(company(c)); return [3-o, `Optimal ${o}`]; })};
 }
 function renderKpi(){
@@ -1646,7 +1712,7 @@ function renderKpi(){
     ${card('Conversations', k.convo, `phone conversations with the prospect · ${pct(k.convo,k.dials)} of dials`)}
     ${card('Discovery booked', k.meetings, k.meetings?`${(k.dials/k.meetings).toFixed(0)} dials and ${(k.touched/k.meetings).toFixed(1)} contacts per discovery call`:`${k.touched} contacts worked`)}
     ${card('Email reply rate', pct(k.replies,k.emails), `${k.replies} of ${k.emails} · bounce ${pct(k.bounces,k.emails)}${k.optout?` · ${k.optout} opt-outs`:''}`, k.emails>=20 && k.bounces/k.emails>0.02 ? 'over' : '')}
-    ${card('LinkedIn accepted', k.liAcc, `${pct(k.liAcc,k.li)} of ${k.li} touches · ${k.liRep} replies`)}
+    ${card('LinkedIn accepted', k.liAcc, `${pct(k.liAcc,k.li)} of ${k.li} touches · ${k.liRep} replies${k.liFol||k.liReq?` · ${k.liFol} followed · ${k.liReq} follow requests`:''}`)}
     ${card('New contacts started', k.started, `${(k.started/m.days).toFixed(1)} a day · ${k.reached} reached`)}
   </div>`;
   const pc=m.pace, prog=pc.goal?Math.min(100,Math.round(100*pc.mtd/pc.goal)):0, expPos=pc.goal?Math.min(100,Math.round(100*pc.expected/pc.goal)):0;
@@ -1672,7 +1738,7 @@ function renderKpi(){
   h += `<h2>Live-answer rate by the prospect's local hour</h2><p class="small muted" style="margin-top:-4px">Tests your call windows (now ${esc(DB.settings.windows.call)} their time) against your own dials.${m.hours.skipped?` ${m.hours.skipped} dials left out because they came from a run-sheet import (no real call time) or had no time zone.`:''} Rates on fewer than 20 dials are shown faded.</p>
     <div class="tablewrap"><table><thead><tr><th>Their time</th><th>Dials</th><th>Live</th><th>Rate</th><th style="width:40%"></th></tr></thead><tbody>${(()=>{ const max=Math.max(0.01,...m.hours.rows.filter(r=>r.dials).map(r=>r.live/r.dials)); return m.hours.rows.map(r=>`<tr class="${r.dials<20?'blk passive':''}"><td>${r.label}${inWin(r.h+0.5, W.call.best)?' <span class="win best">best window</span>':''}</td><td>${r.dials}</td><td>${r.live}</td><td>${pct(r.live,r.dials)}</td><td>${r.dials?`<div style="height:10px;border-radius:5px;background:var(--brand);opacity:${r.dials<20?.35:1};width:${Math.round(100*Math.min(1,(r.live/r.dials)/max))}%"></div>`:''}</td></tr>`).join(''); })()}</tbody></table></div>`;
   const grp=(title, note, rows)=>`<h2>${title}</h2>${note?`<p class="small muted" style="margin-top:-4px">${note}</p>`:''}${rows.length?`<div class="tablewrap"><table><thead><tr><th></th><th>Contacts worked</th><th>Dials</th><th>Live rate</th><th>Reply rate</th><th>Reached</th><th>Meetings</th><th>Meetings per 100 contacts</th></tr></thead><tbody>${rows.map(r=>`<tr><td><b>${esc(r.label)}</b></td><td>${r.touched}</td><td>${r.dials}</td><td>${pct(r.live,r.dials)}</td><td>${pct(r.replies,r.emails)}</td><td>${pct(r.reached,r.touched)}</td><td>${r.meetings}</td><td>${r.touched?(100*r.meetings/r.touched).toFixed(1):'–'}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">No activity in this period.</div>'}`;
-  h += grp('By company size (est. annual hires)', `Evidence for the mid-sized range (now ${DB.settings.mid.min.toLocaleString()}–${DB.settings.mid.max.toLocaleString()} hires a year) when you take it to your manager.`, m.size);
+  h += grp('By account size (est. annual check spend)', `Prime is ${money(DB.settings.spend.primeMin)}–${money(DB.settings.spend.primeMax)} a year at $${DB.settings.spend.pricePerCheck} a check. Prime accounts get the Mid-sized green light; if they book best, the targeting is working.`, m.spend);
   h += grp('By Optimal score', 'If the score works, higher scores should reach and book more often.', m.opt);
   h += grp('By persona', '', m.persona);
   h += `<h2>Pipeline now</h2><div class="seg">${STATUSES.filter(s=>m.status[s]).map(s=>`<span class="tag ${s==='Discovery booked'?'good':s==='Paused'?'warn':''}" style="font-size:13px;padding:4px 10px">${s}: <b>${m.status[s]}</b></span>`).join('')}</div>`;
@@ -1687,7 +1753,7 @@ function exportKpi(){
   add([[`KPI report · ${DB.settings.currentRep==='all'?'Both reps':repName(DB.settings.currentRep)} · ${period} (${m.p==='all'?'all activity':m.from+' to '+m.to})`],[],['Metric','Value'],
     ['Business days',m.days],['Dials',k.dials],['Dials per day',+(k.dials/m.days).toFixed(1)],['Daily dial target',DB.settings.caps.dials],['Live answers',k.live],['Live-answer rate',r(k.live,k.dials)],
     ['Voicemails',k.vm],['Gatekeepers',k.gk],['Conversations',k.convo],['Meetings booked',k.meetings],['Emails sent',k.emails],['Email replies',k.replies],['Reply rate',r(k.replies,k.emails)],
-    ['Bounces',k.bounces],['Bounce rate',r(k.bounces,k.emails)],['Opt-outs',k.optout],['LinkedIn touches',k.li],['LinkedIn accepted',k.liAcc],['LinkedIn replies',k.liRep],
+    ['Bounces',k.bounces],['Bounce rate',r(k.bounces,k.emails)],['Opt-outs',k.optout],['LinkedIn touches',k.li],['LinkedIn accepted',k.liAcc],['LinkedIn replies',k.liRep],['LinkedIn followed',k.liFol],['LinkedIn follow requests',k.liReq],
     ['New contacts started',k.started],['Contacts worked',k.touched],['Contacts reached',k.reached],[],
     ['Playbook scorecard',''],['Calls → conversations',r(k.convo,k.dials)],['Conversations → discovery booked',r(k.meetings,k.convo)],['Discovery calls at Optimal-3 accounts',r(k.meetOpt3,k.meetings)],['Discovery calls at Optimal 2+',r(k.meetOpt2,k.meetings)],
     ['Discovery booked this month',m.pace.mtd],['Monthly discovery goal',m.pace.goal],['On pace by today',+m.pace.expected.toFixed(1)],['Dials per discovery (last 90 days)',m.pace.dialsPer!=null?+m.pace.dialsPer.toFixed(1):''],['Dials a day the goal needs (per rep)',m.pace.need!=null?Math.ceil(m.pace.need):'']], 'Summary', [36,14]);
@@ -1696,7 +1762,7 @@ function exportKpi(){
   add([['Track','Day','Step','Channel','Done','Responses','Rate','Meetings started here'], ...m.steps.filter(x=>x.done||x.track===TRACK_LABEL.cold).map(x=>[x.track,x.day,x.label,CH_LABEL[x.ch],x.done,x.resp,r(x.resp,x.done),x.meet])], 'By step', [26,6,40,9,7,10,8,20]);
   add([['Prospect local hour','Dials','Live','Live rate'], ...m.hours.rows.map(x=>[x.label,x.dials,x.live,r(x.live,x.dials)])], 'By hour', [18,8,8,10]);
   const g=rows=>[['Group','Contacts worked','Dials','Live rate','Reply rate','Reached rate','Meetings','Meetings per 100 contacts'], ...rows.map(x=>[x.label,x.touched,x.dials,r(x.live,x.dials),r(x.replies,x.emails),r(x.reached,x.touched),x.meetings,x.touched?+(100*x.meetings/x.touched).toFixed(1):''])];
-  add(g(m.size),'By company size',[26,16,8,10,10,12,9,22]); add(g(m.opt),'By Optimal score',[14,16,8,10,10,12,9,22]); add(g(m.persona),'By persona',[30,16,8,10,10,12,9,22]);
+  add(g(m.spend),'By account size',[26,16,8,10,10,12,9,22]); add(g(m.opt),'By Optimal score',[14,16,8,10,10,12,9,22]); add(g(m.persona),'By persona',[30,16,8,10,10,12,9,22]);
   XLSX.writeFile(wb, `kpi-${fileTag()}-${m.p}-${todayStr()}.xlsx`);
 }
 
@@ -1724,13 +1790,15 @@ function renderDrawer(){
       <label>Status<select data-cf="status">${STATUSES.map(x=>`<option ${c.status===x?'selected':''}>${x}</option>`).join('')}</select></label>
       <label>Persona<select data-cf="personaOverride"><option value="">Auto: ${PERSONAS[personaFromTitle(c.title)].label}</option>${Object.entries(PERSONAS).map(([k,p])=>`<option value="${k}" ${c.personaOverride===k?'selected':''}>${p.label}</option>`).join('')}</select></label>
       <label>Time zone<select data-cf="tzOverride"><option value="">Auto (${esc(z.src)})</option>${Object.entries(ZONES).map(([k,v])=>`<option value="${k}" ${c.tzOverride===k?'selected':''}>${v.label}</option>`).join('')}</select></label>
+      <label>LinkedIn<select data-cf="liState">${['','Request sent','Connected','Following','Follow requested'].map(x=>`<option value="${x}" ${(c.liState||'')===x?'selected':''}>${x||'Not connected'}</option>`).join('')}</select></label>
       <label>Source<select data-cf="source"><option ${c.source==='ZoomInfo'?'selected':''}>ZoomInfo</option><option ${c.source==='Old lead'?'selected':''}>Old lead</option></select></label>
       ${c.status==='Attempting'?`<label>Cadence start<input type="date" data-cf="startDate" value="${esc(c.startDate)}"></label>`:''}
       <div class="small" style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${c.emailBad?'<span class="tag bad">Email bounced: add a new address</span>':''}${c.emailBlocked||co.emailBlocked?'<span class="tag bad">Blocked by their server</span>':''}<button class="btn sm" data-act="replyOpen" data-id="${c.id}">Log an email reply</button><button class="btn sm" data-act="bounceOpen" data-id="${c.id}">Report a bounce</button>
         <label class="chk"><input type="checkbox" data-cf2="emailBlocked" ${c.emailBlocked?'checked':''}> Pause emails to this contact</label>${co.emailBlocked?`<label class="chk"><input type="checkbox" data-cof="emailBlocked" checked> Pause emails to everyone at ${esc(co.name)}</label>`:''}</div>
       <label style="grid-column:1/-1">Notes<textarea data-cf="notes" style="min-height:70px">${esc(c.notes||'')}</textarea></label>
     </div>
-    <h3>Company · Optimal score <span class="opt opt${optimal(co)}">${optimal(co)}</span></h3>
+    <h3>Company · Optimal score <span class="opt opt${optimal(co)}">${optimal(co)}</span> ${bandTag(co)}</h3>
+    <p class="small" style="margin:-4px 0 6px">${(()=>{ const a=acctSize(co); return a.band ? `About <b>${a.hires.toLocaleString()} checks a year</b> (${esc(a.note)}) × $${DB.settings.spend.pricePerCheck} ≈ <b>${money(a.spend)}</b> a year: <b>${BANDS[a.band].label}</b>${a.band==='rfp'?'. Likely to buy through an RFP, which the playbook flags as a red flag for outbound.':a.band==='small'?'. Below the prime range.':'. In the prime range.'}` : `<span class="muted">Account size unknown: ${esc(a.note)}. Add employees and industry, or estimated annual hires.</span>`; })()}</p>
     <div class="small muted" style="margin-bottom:6px">Mid-sized (auto): ${esc(ma.note)}</div>
     <div class="fields">
       ${cinp('name','Company name')}${cinp('state','State')}${cinp('employees','Employees','number')}${cinp('annualHires','Est. annual hires','number')}
@@ -1969,6 +2037,7 @@ document.addEventListener('change', async e=>{
   if (el.id==='bulkStatus' && el.value){ for (const x of DB.contacts) if (UI.selected.has(x.id)){ x.status=el.value; if (el.value==='Discovery booked' && !x.discoveryDate) x.discoveryDate=todayStr(); if (el.value==='Nurture') x.revisitDate=addDays(todayStr(),90); touch(x); } save(); render(); return; }
   if (d.rep){ const r=DB.settings.reps.find(x=>x.id===d.rep); if (r){ r[d.rf]=el.value; save(); renderHeader(); } return; }
   if (d.cap){ DB.settings.caps[d.cap]=Math.max(0,+el.value||0); save(); return; }
+  if (d.spend){ DB.settings.spend[d.spend]=Math.max(0,+el.value||0); save(); render(); return; }
   if (d.goal){ DB.settings.goals[d.goal]=Math.max(0,+el.value||0); save(); return; }
   if (d.rate){ DB.settings.rates[d.rate]=Math.max(1,+el.value||1); save(); return; }
   if (d.mid){ DB.settings.mid[d.mid]=Math.max(0,+el.value||0); save(); return; }
