@@ -271,11 +271,18 @@ const OPENERS = {
   L:{name:'Call-back after email or voicemail',text:"Hi [Prospect], [Rep] with Peopletrail. I sent you a note on [day sent] about identity verification in screening. I'm guessing it got buried. Did it land at all?"},
   M:{name:'No-oriented (Voss)',text:"Hi [Prospect], [Rep] with Peopletrail. Is it a bad time for a quick question about background checks?"},
   O:{name:'Cost of a bad hire: executives (wording not in playbook, review)',text:"Hi [Prospect], [Rep] with Peopletrail. I'll be brief. When a bad hire gets through screening, the check was the cheap part. The real cost shows up in turnover, liability and reputation. Who owns background screening at [Their Company], and would they say it's catching everything it should?"},
-  WP:{name:'Win-back · lost on price (Blount 5-step (not in playbook, review))',text:"Hi [Prospect], it's [Rep] with Peopletrail. We last talked [Lost when], when our quote came in higher than you wanted. The reason I'm calling is that the per-report price is usually only part of the cost. Re-runs, disputes, slow turnaround and your team's time add to it. I'd like 15 minutes to compare what you're really spending per hire now with what we quoted. Do you have time Tuesday or Thursday?"},
-  WC:{name:'Win-back · went with a competitor (Sobczak: a reason and a question (not in playbook, review))',text:"Hi [Prospect], it's [Rep] with Peopletrail. When we last talked [Lost when], you went with [Competitor]. I'm not calling to second-guess that. By now you know whether they're delivering what they promised. If you could change one thing about how screening works today, what would it be?"},
+  WP:{name:'Win-back · lost on price (Blount 5-step (not in playbook, review))',text:"Hi [Prospect], it's [Rep] with Peopletrail. We last connected [Last contact], and pricing was a big part of your decision. The reason I'm calling is that the per-report price is usually only part of the cost. Re-runs, disputes, slow turnaround and your team's time add to it. I'd like 15 minutes to compare what you're really spending per hire now with what we quoted. Do you have time Tuesday or Thursday?"},
+  WC:{name:'Win-back · went with a competitor (Sobczak: a reason and a question (not in playbook, review))',text:"Hi [Prospect], it's [Rep] with Peopletrail. When we last connected [Last contact], you went with [Competitor]. I'm not calling to second-guess that. By now you know whether they're delivering what they promised. If you could change one thing about how screening works today, what would it be?"},
   WT:{name:'Win-back · timing (Blount 5-step (not in playbook, review))',text:"Hi [Prospect], it's [Rep] with Peopletrail. [Lost when] you told me the timing wasn't right and to come back later, so I'm keeping my word. The reason I'm calling is [What's new]. Has anything changed with your hiring or screening since then, or is it still not a priority this quarter?"},
   WN:{name:'Win-back · no decision / went quiet (Batrawy: lead with the problem (not in playbook, review))',text:"Hi [Prospect], it's [Rep] with Peopletrail. Things stalled after our quote [Lost when], and that's on me for not making the next step clear. Last time you mentioned [Loss detail]. Quick question: did that get solved, or is it still there?"},
   WR:{name:'Win-back · renewal coming up (playbook Sequence F timing (not in playbook, review))',text:"Hi [Prospect], it's [Rep] with Peopletrail. You mentioned your agreement with [Competitor] renews [Renewal]. That's about 90 days out, which is the right time to compare while you still have options. Can we put 20 minutes on the calendar to walk through a fresh quote?"},
+  WM:{name:'Win-back · several reasons (Sobczak: ask which matters most (not in playbook, review))',text:"Hi [Prospect], it's [Rep] with Peopletrail. We last connected [Last contact], and you chose [Competitor] mainly on [Loss reasons]. I'm not calling to argue with that. Those are the things that usually look different six months in. Of those, which one matters most to you now?"},
+  WTech:{name:'Win-back · reporting and technology (Batrawy: lead with the problem (not in playbook, review))',text:"Hi [Prospect], it's [Rep] with Peopletrail. We last connected [Last contact], and reporting and technology were a big part of your decision. Now that you've lived with [Competitor]'s reporting for a while, is it giving your team what it needs, or are people still pulling reports together by hand?"},
+  WSvc:{name:'Win-back · service and speed of results (Batrawy: lead with the problem (not in playbook, review))',text:"Hi [Prospect], it's [Rep] with Peopletrail. We last connected [Last contact], and service and speed of results mattered most. Quick question: are results coming back as fast as you were promised, and when your team calls in, do they get a real person?"},
+  WNI:{name:'Win-back · they said not interested (go for the no (not in playbook, review))',text:"Hi [Prospect], it's [Rep] with Peopletrail. You told me [Lost when] that you weren't interested, and I respected that. I'm calling once because [What's new]. If it's still a no, just tell me and I'll close your file."},
+  WInd:{name:'Win-back · wants an industry specialist (not in playbook, review)',text:"Hi [Prospect], it's [Rep] with Peopletrail. Last time you told me you prefer a screening partner that specializes in [industry]. That makes sense. [Industry proof]. Would it be worth 15 minutes to see how that compares with what you have now?"},
+  WRfp:{name:'RFP check-in · get on the next bid (Blount: the reason, then ask (not in playbook, review))',text:"Hi [Prospect], it's [Rep] with Peopletrail. Thanks again for including us in your last bid. The reason I'm calling is to make sure we're on the list for the next one, and to learn what mattered most in the evaluation so our response fits. When does your next review start?"},
+  WRfpT:{name:"RFP check-in · terms we couldn't meet (not in playbook, review)",text:"Hi [Prospect], it's [Rep] with Peopletrail. In your last RFP, a few terms were ones we couldn't meet. Before the next cycle, are those terms fixed, or is there room to discuss them? If they're fixed, I'd rather know now than waste your time."},
   WG:{name:'Win-back · new reason to talk (Sobczak: never "just checking in" (not in playbook, review))',text:"Hi [Prospect], [Rep] with Peopletrail. I'm not calling just to check in. Since we last talked, [What's new]. Last time you mentioned [Loss detail], so I thought it was worth two minutes. Is that still an issue for you?"},
   R:{name:'Re-engage old lead (not in playbook, review)',text:"Hi [Prospect], [Rep] with Peopletrail. We talked a while back about background screening at [Their Company]. A lot can change in a year, so I'm checking in. Is your current setup still working, or has anything come up?"},
 };
@@ -285,7 +292,8 @@ const VMS = {
   VM3:{name:'Speed and candidate experience',text:"Hi [Prospect], [Rep] with Peopletrail. Most of our reports come back in about 1.6 business days, and candidates can track their own status. I'm curious how long your candidates wait today. Email's on its way. [phone]."},
   VM4:{name:'Trigger',text:"Hi [Prospect], [Rep] with Peopletrail. I saw [Their Company] is [Trigger]. That usually puts pressure on screening turnaround. I'll send a note. [phone]."},
   VM5:{name:'Curious (Miner)',text:"Hi [Prospect], it's [Rep] with Peopletrail. I'm not sure you're the right person, but I had a quick question about background screening. Give me a call when you can at [phone]."},
-  VW1:{name:'Win-back voicemail · one specific idea (Sobczak (not in playbook, review))',text:"Hi [Prospect], it's [Rep] with Peopletrail, [phone]. We talked [Lost when] about your background screening, and you mentioned [Loss detail]. I have one specific idea on that I'd like to run by you. I'll send a short email too. Again, [phone]."},
+  VW1:{name:'Win-back voicemail · one specific idea (Sobczak (not in playbook, review))',text:"Hi [Prospect], it's [Rep] with Peopletrail, [phone]. We last connected [Last contact] about your background screening, and you mentioned [Loss detail]. I have one specific idea on that I'd like to run by you. I'll send a short email too. Again, [phone]."},
+  VWR:{name:'RFP voicemail · next bid (not in playbook, review)',text:"Hi [Prospect], it's [Rep] with Peopletrail, [phone]. Calling about your next background screening RFP. I'd like to make sure we're on the bidder list and understand what mattered most last time. Again, [phone]."},
   VW2:{name:'Win-back voicemail · closing the file (not in playbook, review)',text:"Hi [Prospect], [Rep] with Peopletrail. I've tried you a few times since we last talked, so I'll assume screening isn't a priority right now and stop calling. If that changes, or your renewal comes up, I'm at [phone]."},
   VM6:{name:'Breakup',text:"Hi [Prospect], [Rep] with Peopletrail. I've reached out a few times, so I'll assume screening isn't a priority right now. No problem. If that changes before your renewal, I'm at [phone]."},
 };
@@ -303,6 +311,13 @@ const EMAILS = {
   wbT:{name:'Win-back email · timing (not in playbook, review)',subject:'you said to come back later',text:"Hi [Prospect],\n\n[Lost when] you said the timing wasn't right and to come back later. I'm coming back with a reason: [What's new].\n\nIs screening on your list this quarter? A yes or no is fine."},
   wbN:{name:'Win-back email · no decision (not in playbook, review)',subject:'did that get solved?',text:"Hi [Prospect],\n\nAfter our quote [Lost when], things went quiet, and I should have made the next step clearer.\n\nWhen we talked, you mentioned [Loss detail]. Did that get solved? If not, I have a couple of ideas worth 15 minutes."},
   wbR:{name:'Win-back email · renewal (adapted from Sequence F)',subject:'before your renewal',text:"Hi [Prospect],\n\nYou mentioned your agreement with [Competitor] renews [Renewal]. About 90 days out is the right time to compare, while you still have options.\n\nWant me to put together a fresh quote based on your current volume? 20 minutes is enough to walk through it."},
+  wbM:{name:'Win-back email · several reasons (not in playbook, review)',subject:'which one matters most?',text:"Hi [Prospect],\n\nWhen you chose [Competitor], you said [Loss reasons] drove the decision. Fair enough.\n\nThose are usually the things that look different a few months in. If one of them isn't living up to what was promised, which one? I'd like to show you how we handle it, in 15 minutes. If they're all working, tell me and I'll check back before your renewal."},
+  wbTech:{name:'Win-back email · reporting and technology (not in playbook, review)',subject:'your screening reports',text:"Hi [Prospect],\n\nReporting and technology were a big part of your decision last time. How is it going in practice? Are you getting the reports you need without pulling them together by hand?\n\nIf not, I'd like to show you ours in 15 minutes."},
+  wbSvc:{name:'Win-back email · service and speed (not in playbook, review)',subject:'turnaround since you switched',text:"Hi [Prospect],\n\nService and speed of results mattered most when you decided. Are results coming back as fast as you were promised, and does your team get a real person when they call in?\n\nIf either has slipped, worth 15 minutes?"},
+  wbNI:{name:'Win-back email · after a not interested (not in playbook, review)',subject:'one last note',text:"Hi [Prospect],\n\nYou told me you weren't interested, and I respected that. One thing has changed since: [What's new].\n\nIf it's still a no, reply \"no\" and I'll close your file."},
+  wbInd:{name:'Win-back email · industry specialist (not in playbook, review)',subject:'screening for [industry]',text:"Hi [Prospect],\n\nYou mentioned you prefer a screening partner that specializes in [industry]. [Industry proof].\n\nWorth 15 minutes to compare?"},
+  wbRfp:{name:'RFP email · next bid (not in playbook, review)',subject:'your next screening RFP',text:"Hi [Prospect],\n\nThanks again for including us in your last bid. Could you add us to the list for the next one? And if you're able to share what mattered most in the evaluation, it would help us send a response that fits.\n\nWhen does your next review start?"},
+  wbRfpT:{name:"RFP email · terms we couldn't meet (not in playbook, review)",subject:'terms for your next RFP',text:"Hi [Prospect],\n\nIn your last RFP, a few terms were ones we couldn't meet. Before the next cycle, are those fixed, or open to discussion? If they're fixed, I'd rather know now and not waste your time."},
   wb2:{name:'Win-back email 2 · what is new (not in playbook, review)',subject:'one change since we talked',text:"Hi [Prospect],\n\nOne thing that's changed since we last talked: [What's new].\n\nYou'd mentioned [Loss detail], so I thought you'd want to know. Worth a short call?"},
   wb3:{name:'Win-back email 3 · close the file (not in playbook, review)',subject:'should I close your file?',text:"Hi [Prospect],\n\nI haven't heard back, so I'll assume now isn't the time and close your file. If anything changes, or your renewal comes up, just reply and I'll pick it back up."},
   eR:{name:'Re-engage (adapted from Sequence F)',subject:'since we spoke',text:"Hi [Prospect], we spoke a while back about background screening at [Their Company]. Has anything changed with your provider, or is it worth a 20-minute comparison before your next renewal?"},
@@ -361,6 +376,11 @@ const TRACKS = {
     {id:'r10-email',day:10,ch:'email',    label:'Breakup email', email:'e6'},
     {id:'r10-call',day:10, ch:'call',     label:'Call 3 + breakup voicemail', opener:'M', vm:'VM6'},
   ],
+  rfp: [ /* closed-lost RFPs: get on the next bid list, learn the criteria, find out if the terms move */
+    {id:'f1-call', day:1, ch:'call',  label:'RFP check-in call + voicemail', opener:'loss', vm:'VWR'},
+    {id:'f1-email',day:1, ch:'email', label:'RFP check-in email', email:'loss'},
+    {id:'f8-call', day:8, ch:'call',  label:'RFP check-in call 2', opener:'loss', vm:''},
+  ],
   winback: [ /* closed-lost deals: phone-first, a new reason on every touch */
     {id:'w1-call', day:1,  ch:'call',     label:'Win-back call 1 + voicemail (by loss reason)', opener:'loss', vm:'VW1'},
     {id:'w1-email',day:1,  ch:'email',    label:'Win-back email 1 (by loss reason)', email:'loss'},
@@ -372,7 +392,7 @@ const TRACKS = {
     {id:'w21-call',day:21, ch:'call',     label:'Call 4 + closing voicemail', opener:'WG', vm:'VW2'},
   ],
 };
-const TRACK_LABEL = {cold:'Cold cadence', reengage:'Re-engage track (old leads)', winback:'Win-back track (closed-lost deals)'};
+const TRACK_LABEL = {cold:'Cold cadence', reengage:'Re-engage track (old leads)', winback:'Win-back track (closed-lost deals)', rfp:'RFP check-in (closed-lost RFPs)'};
 
 /* Daily schedule presets (times are the rep's local time) */
 const SCHEDULE_PRESETS = {
@@ -429,7 +449,7 @@ const DEFAULT_SETTINGS = {
   connectRate:12,
   goals:{discoveryMonth:12.5},
   spend:{pricePerCheck:45, primeMin:10000, primeMax:150000},
-  winback:{price:90, competitor:120, timing:90, nodecision:45, other:90, renewalLead:90, whatsNew:''},
+  winback:{price:90, tech:120, service:120, competitor:120, industry:180, notint:180, timing:90, nodecision:45, renewal:90, rfpBid:365, rfpTerms:365, other:90, renewalLead:90, bidLead:60, whatsNew:'', industryProof:''},
 };
 let DB = {contacts:[], companies:{}, settings:structuredClone(DEFAULT_SETTINGS), custom:{}, lastExport:null, lastChange:null, setupDone:false};
 const UI = {tab:'today', f:{q:'',owner:'mine',zones:new Set(),status:'',minOpt:0,persona:'',source:'',state:''}, sort:'priority', selected:new Set(), drawer:null, draft:null, storageOk:true,
@@ -578,35 +598,71 @@ function priority(c){
   return s;
 }
 /* ---------- Closed-lost deals (already in HubSpot): when to follow up and how ---------- */
-const LOSS_CATS = {price:'Price', competitor:'Went with a competitor', timing:'Timing / not a priority', nodecision:'No decision / went quiet', renewal:'Under contract / renewal', other:'Other'};
-const LOSS_OPENER = {price:'WP', competitor:'WC', timing:'WT', nodecision:'WN', renewal:'WR', other:'WN'};
-const LOSS_EMAIL  = {price:'wbP', competitor:'wbC', timing:'wbT', nodecision:'wbN', renewal:'wbR', other:'wbN'};
-function lossCat(text){
-  const s=String(text||'').toLowerCase(); if (!s) return 'other';
-  if (/contract|renew|locked|under agreement|multi-?year/.test(s)) return 'renewal';
-  if (/price|pricing|cost|budget|expensive|cheaper|too high|rate/.test(s)) return 'price';
-  if (/competitor|went with|chose|another (vendor|provider|company)|incumbent|stayed with|current (vendor|provider)|lost to/.test(s)) return 'competitor';
-  if (/timing|later|not now|next (year|quarter)|priority|freeze|on hold|paused|bandwidth/.test(s)) return 'timing';
-  if (/no decision|no response|went dark|ghost|unresponsive|stalled|no reply|lost contact|champion left/.test(s)) return 'nodecision';
-  return 'other';
+const LOSS_CATS = {price:'Price', tech:'Reporting and technology', service:'Service and speed of results', competitor:'Went with a competitor',
+  industry:'Wants an industry specialist', notint:'Not interested', timing:'Timing / not a priority', nodecision:'No decision / went quiet',
+  renewal:'Under contract / renewal', rfpBid:'RFP: uses us as a comparison bid', rfpTerms:"RFP: terms we can't meet", other:'Other'};
+const LOSS_PHRASE = {price:'price', tech:'reporting and technology', service:'speed of results and service', industry:'industry specialization', timing:'timing', nodecision:'', notint:'', renewal:'your contract', rfpBid:'', rfpTerms:'', competitor:'', other:''};
+const LOSS_OPENER = {price:'WP', tech:'WTech', service:'WSvc', multi:'WM', competitor:'WC', industry:'WInd', notint:'WNI', timing:'WT', nodecision:'WN', renewal:'WR', rfpBid:'WRfp', rfpTerms:'WRfpT', other:'WN'};
+const LOSS_EMAIL  = {price:'wbP', tech:'wbTech', service:'wbSvc', multi:'wbM', competitor:'wbC', industry:'wbInd', notint:'wbNI', timing:'wbT', nodecision:'wbN', renewal:'wbR', rfpBid:'wbRfp', rfpTerms:'wbRfpT', other:'wbN'};
+const LOSS_STAGES = {emailed:'Emailed only', talked:'Talked by phone', demo:'Demo done', quote:'Quote sent'};
+const COMPETITORS = ['First Advantage','Sterling','HireRight','Checkr','Accurate Background','Certn','GoodHire','Cisive','Asurint','Orange Tree','Universal Background Screening','Validity Screening','Hire Image','Employment Screening Services','Global Verification Network','Info Cubic','Backgroundchecks.com','Verified First','ClearStar','Disa','Peopletrail'];
+/* Read a client's words (or a HubSpot loss reason) into reasons in the order they were named, plus who they chose. */
+function detectLoss(text){
+  const raw=String(text||''), s=raw.toLowerCase(), hits=[];
+  const add=(k,re)=>{ const m=s.search(re); if (m>=0) hits.push([m,k]); };
+  const rfp=/\brfp\b|request for proposal|\bbid(s|ding)?\b|procurement|tender/;
+  if (rfp.test(s)){ if (/terms?|requirements?|deviate|non-?negotiable|can'?t (change|meet)|unable to (meet|accept)|insurance|indemn/.test(s)) add('rfpTerms', rfp); else add('rfpBid', rfp); }
+  add('price', /pric|cost|budget|expensive|cheaper|too high|\brates?\b/);
+  add('tech', /report|technolog|platform|software|integrat|\bats\b|dashboard|portal|system/);
+  add('service', /service|speed|turnaround|turn-around|faster|quick(er)?|results back|support|responsive/);
+  add('industry', /speciali[sz]|industry[- ]specific|niche|vertical|only (use|work with) .{0,30}(industry|healthcare|trucking|transportation)/);
+  add('notint', /not interested|no longer interested|no interest|not looking/);
+  add('timing', /timing|not now|next (year|quarter)|not a priority|on hold|freeze|later date/);
+  add('nodecision', /no decision|no response|went dark|unresponsive|stalled|no reply/);
+  add('renewal', /under contract|renew|locked in|multi-?year/);
+  let competitor = COMPETITORS.find(n=>s.includes(n.toLowerCase())) || '';
+  if (!competitor){ const m=raw.match(/([A-Z][\w&.'\- ]{2,40}?)\s+is (?:who|the (?:vendor|provider|company)) we(?:'ve| have)?\s+(?:chosen|selected|picked|gone with)/) || raw.match(/(?:chose|selected|picked|went with|gone with|going with|decided on|decided to go with|awarded (?:it )?to)\s+([A-Z][\w&.'\-]*(?:\s+[A-Z][\w&.'\-]*){0,4})/); if (m) competitor=m[1].trim(); }
+  const cm=s.search(/competitor|went with|switched to|lost to|chose another|another (vendor|provider)|stayed with/);
+  if ((competitor && competitor!=='Peopletrail') || cm>=0) hits.push([cm>=0?cm:s.length, 'competitor']);
+  const reasons=[...new Set(hits.sort((a,b)=>a[0]-b[0]).map(x=>x[1]))];
+  return {reasons, competitor: competitor==='Peopletrail' ? '' : competitor};
 }
-/* Recycle date from HubSpot wins; then 90 days before a known renewal; then the default for the loss reason. */
+const lossCat = text => detectLoss(text).reasons[0] || 'other';
+const lossReasons = L => (L && L.reasons && L.reasons.length) ? L.reasons : (L && L.cat ? [L.cat] : ['other']);
+/* Which script set to use: RFP first, then a renewal within 120 days, then their words. */
+function lossKeyOf(c){
+  const L=c.lost||{}, rs=lossReasons(L), r=company(c).renewalDate;
+  if (rs.includes('rfpTerms')) return 'rfpTerms'; if (rs.includes('rfpBid')) return 'rfpBid';
+  if (isValidYmd(r) && r>=todayStr() && daysBetween(todayStr(), r)<=120) return 'renewal';
+  if (rs.includes('notint')) return 'notint'; if (rs.includes('industry')) return 'industry';
+  const core=rs.filter(k=>['price','tech','service'].includes(k)); if (core.length>=2) return 'multi';
+  return rs.find(k=>k!=='competitor') || (L.competitor ? 'competitor' : 'other');
+}
+const isRfpLoss = c => c.source==='Closed lost' && ['rfpBid','rfpTerms'].includes(lossKeyOf(c));
+/* Follow-up date: HubSpot recycle date, then the next RFP / bid date, then a known renewal, then the longest wait among their reasons. */
 function lostFollowUp(c){
-  const L=c.lost||{}, t=todayStr(), co=company(c), s=DB.settings.winback;
+  const L=c.lost||{}, t=todayStr(), co=company(c), s=DB.settings.winback, rs=lossReasons(L);
   let d='', why='';
   if (isValidYmd(L.recycle)){ d=L.recycle; why='recycle date from HubSpot'; }
+  else if (isValidYmd(L.nextBid) && addDays(L.nextBid, -s.bidLead) >= t){ d=addDays(L.nextBid, -s.bidLead); why=`${s.bidLead} days before their next RFP (${prettyDate(L.nextBid)})`; }
   else if (isValidYmd(co.renewalDate) && addDays(co.renewalDate, -s.renewalLead) >= t){ d=addDays(co.renewalDate, -s.renewalLead); why=`${s.renewalLead} days before the ${prettyDate(co.renewalDate)} renewal`; }
-  else { const base=isValidYmd(L.date)?L.date:t, days=s[L.cat||'other']??90; d=addDays(base, days); why=`${days} days after the loss (${LOSS_CATS[L.cat||'other']})`; }
+  else { const base=isValidYmd(L.date)?L.date:t; let days=0, k='other'; for (const r of rs){ const v=s[r]??s.other??90; if (v>days){ days=v; k=r; } }
+    d=addDays(base, days); why=`${days} days after the loss (${LOSS_CATS[k]}${rs.length>1?', the longest wait of their reasons':''})`; }
   if (d<t){ d=t; why+=', already passed, so today'; }
   return {date:nextBiz(d), why};
 }
 function applyLost(c, info){
   c.source='Closed lost';
-  const L=c.lost=Object.assign(c.lost||{}, info||{});
-  L.cat = L.cat || lossCat(L.reason);
+  const L=c.lost=c.lost||{};
+  for (const [k,v] of Object.entries(info||{})) if (v!=='' && v!=null && !(Array.isArray(v) && !v.length)) L[k]=v;   /* blanks never wipe what you entered */
+  if (!L.reasons || !L.reasons.length){ const d=detectLoss([L.reason, L.verbatim].filter(Boolean).join('. ')); if (!L.competitor && d.competitor) L.competitor=d.competitor; L.reasons=d.reasons.length?d.reasons:[L.competitor?'competitor':(L.cat||'other')]; }
+  L.cat=L.reasons[0]; L.stage = L.stage || (+L.amount>0 ? 'quote' : 'talked');
   const co=company(c); if (L.competitor && !co.provider) co.provider=L.competitor; if (+L.amount>0) co.quote=Math.max(+co.quote||0, +L.amount);
   if (!['Attempting','Connected','Discovery booked','Do not contact'].includes(c.status)){ c.status='Nurture'; c.revisitDate=lostFollowUp(c).date; }
 }
+function lossSummary(c){ const L=c.lost||{}; return lossReasons(L).map(k=>LOSS_CATS[k]).join(' · '); }
+function lossReasonPhrase(c){ const ps=lossReasons(c.lost).map(k=>LOSS_PHRASE[k]).filter(Boolean); return ps.length<=1 ? (ps[0]||'') : ps.length===2 ? ps.join(' and ') : ps.slice(0,-1).join(', ')+', and '+ps[ps.length-1]; }
+function lastContact(c){ const L=c.lost||{}, w=lostWhen(c); if (!w) return ''; return ({demo:`at your demo ${w}`, quote:`over our quote ${w}`, emailed:`by email ${w}`, talked:w})[L.stage||'talked']||w; }
 const monthYear = d => { const x=parseYmd(d), now=new Date(); return x.toLocaleDateString('en-US',{month:'long'}) + (x.getFullYear()!==now.getFullYear()?' '+x.getFullYear():''); };
 function lostWhen(c){ const d=c.lost?.date; if (!isValidYmd(d)) return ''; const days=daysBetween(d, todayStr()); return days<35 ? 'a few weeks ago' : `back in ${monthYear(d)}`; }
 /* Best time to reach: free text like "Tue/Thu 8-9am" or "after 2pm". Hours become their best call window. */
@@ -627,7 +683,7 @@ function bestTime(c){
 }
 const callWinsFor = c => { const b=c?bestTime(c):{wins:[]}; return {best: b.wins.length ? b.wins : W.call.best, ok: W.call.ok, own: b.wins.length>0}; };
 
-const trackFor = c => c.source==='Closed lost' ? 'winback' : c.source==='Old lead' ? 'reengage' : 'cold';
+const trackFor = c => c.source==='Closed lost' ? (isRfpLoss(c) ? 'rfp' : 'winback') : c.source==='Old lead' ? 'reengage' : 'cold';
 const steps = c => TRACKS[c.track || trackFor(c)] || TRACKS.cold;
 const dueFrom = (start, st) => nextBiz(addDays(start, st.day-1));
 function dueDate(c, st){ return dueFrom(c.startDate, st); }
@@ -670,11 +726,12 @@ function fill(text, c, extra){
   const co=company(c), rep=repObj(c.owner), wn=DB.settings.winback?.whatsNew;
   const map = {'[Prospect]':firstName(c)||'there','[Rep]':rep.name||'[Rep]','[Their Company]':co.name||'[Their Company]','[phone]':rep.phone||'[phone]','[state]':co.state||'[state]','[Trigger]':co.triggerNote||'[Trigger]','[day sent]':daySent(c),
     '[Lost when]':lostWhen(c)||'[Lost when]', '[Competitor]':c.lost?.competitor||co.provider||'your current provider', '[Renewal]':isValidYmd(co.renewalDate)?'in '+monthYear(co.renewalDate):'[Renewal]',
-    '[Loss detail]':c.lost?.note||'[Loss detail]', "[What's new]":wn||"[What's new]", ...(extra||{})};
-  return String(text||'').replace(/\[(Prospect|Rep|Their Company|phone|state|Trigger|day sent|Lost when|Competitor|Renewal|Loss detail|What's new|Agreed time|Call-back note)\]/g, m => map[m]||m);
+    '[Loss detail]':c.lost?.note||'[Loss detail]', "[What's new]":wn||"[What's new]", '[Last contact]':lastContact(c)||'[Last contact]', '[Loss reasons]':lossReasonPhrase(c)||'[Loss reasons]',
+    '[industry]':(co.industry||'').toLowerCase()||'[industry]', '[Industry proof]':DB.settings.winback?.industryProof||'[Industry proof]', ...(extra||{})};
+  return String(text||'').replace(/\[(Prospect|Rep|Their Company|phone|state|Trigger|day sent|Lost when|Last contact|Loss reasons|Competitor|Renewal|Loss detail|What's new|industry|Industry proof|Agreed time|Call-back note)\]/g, m => map[m]||m);
 }
 const sayHtml = t => esc(t).replace(/\[[^\]]+\]/g, m=>`<mark>${m}</mark>`);
-const lossKey = c => { const r=company(c).renewalDate; return isValidYmd(r) && r>=todayStr() && daysBetween(todayStr(), r)<=120 ? 'renewal' : (c.lost?.cat||'other'); };
+const lossKey = c => lossKeyOf(c);
 const emailKey = (c, key) => key==='loss' ? LOSS_EMAIL[lossKey(c)] : key==='persona' ? (EMAILS[PERSONAS[persona(c)].em1] ? PERSONAS[persona(c)].em1 : 'e1') : key;
 function emailFor(c, key, st){
   key = emailKey(c, key);
@@ -1113,7 +1170,7 @@ function parseTsv(text){
   return {headers, rows};
 }
 function repIdFromName(n){ const s=String(n||'').trim().toLowerCase(); if (!s) return ''; return DB.settings.reps.find(r=>r.name.toLowerCase()===s || r.name.toLowerCase().split(' ')[0]===s.split(' ')[0])?.id || ''; }
-function commitRecords(recs, ownerId, sourceMode){
+function commitRecords(recs, ownerId, sourceMode, updateExisting){
   const byEmail=new Map(), byName=new Map();
   for (const c of DB.contacts){ if (c.email) byEmail.set(c.email, c); byName.set(norm(c.name)+'|'+c.companyKey, c); }
   let added=0, updated=0;
@@ -1124,9 +1181,11 @@ function commitRecords(recs, ownerId, sourceMode){
     const ex = (r.email && byEmail.get(r.email)) || byName.get(norm(r.name)+'|'+key);
     if (isValidYmd(r.renewal) && !co.renewalDate) co.renewalDate=r.renewal;
     const src = sourceMode==='auto' ? ((r.lossReason||r.lossDate||r.recycle) ? 'Closed lost' : (r.lastContacted||r.priorStatus) ? 'Old lead' : 'ZoomInfo') : sourceMode;
-    const lostInfo = {reason:r.lossReason||'', cat:'', date:r.lossDate||'', recycle:r.recycle||'', amount:r.quote||'', competitor:r.competitor||'', hubspotId:r.hubspotId||'', dealName:r.dealName||'', note:''};
-    if (ex){ for (const f of ['first','last','title','email','directPhone','businessPhone','linkedin','lastContacted','priorStatus','bestTime']) if (!ex[f] && r[f]) ex[f]=r[f]; if (r.liKnown) ex.liKnown=true;
-      if (src==='Closed lost') applyLost(ex, lostInfo); touch(ex); updated++; continue; }
+    const det=detectLoss(r.lossReason);
+    const lostInfo = {reason:r.lossReason||'', reasons:det.reasons, date:r.lossDate||'', recycle:r.recycle||'', amount:r.quote||'', competitor:r.competitor||det.competitor||'', hubspotId:r.hubspotId||'', dealName:r.dealName||''};
+    if (ex){ for (const f of ['first','last','title','email','directPhone','businessPhone','linkedin','lastContacted','priorStatus','bestTime']) if (r[f] && (updateExisting || !ex[f])) ex[f]=r[f]; if (r.liKnown) ex.liKnown=true;
+      if (updateExisting){ for (const f of ['state','city','employees','annualHires','industry']) if (r[f]) co[f]=r[f]; if (isValidYmd(r.renewal)) co.renewalDate=r.renewal; }
+      if (src==='Closed lost'){ if (!updateExisting && ex.lost) for (const k of Object.keys(lostInfo)) if (ex.lost[k]) delete lostInfo[k]; applyLost(ex, lostInfo); if (ex.status==='Nurture') ex.revisitDate=lostFollowUp(ex).date; } touch(ex); updated++; continue; }
     const c = {id:uid(), owner:repIdFromName(r.owner)||ownerId, status:'New', track:'', source:src, name:r.name, first:r.first, last:r.last, title:r.title,
       email:r.email, directPhone:r.directPhone, businessPhone:r.businessPhone, linkedin:r.linkedin, liKnown:r.liKnown, companyKey:key,
       lastContacted:r.lastContacted, priorStatus:r.priorStatus, notes:r.notes, touches:[], startDate:'', revisitDate:'', pauseReason:'',
@@ -1384,8 +1443,9 @@ function renderHeader(){
 }
 function render(){
   renderHeader();
+  const trashBar = UI.trash && Date.now()-UI.trash.at < 10*60*1000 ? `<div class="card" style="margin-bottom:12px;display:flex;gap:10px;align-items:center;border-color:var(--bad)"><span>Deleted ${UI.trash.items.length===1?esc(UI.trash.items[0].name):UI.trash.items.length+' leads'}.</span><button class="btn sm primary" data-act="undoDelete">Undo</button><button class="btn sm" data-act="dismissTrash">Dismiss</button></div>` : '';
   const app=$('#app'), views={today:renderToday, run:renderRun, leads:renderLeads, kpi:renderKpi, import:renderImport, cadence:renderCadence, scripts:renderScripts, settings:renderSettings};
-  app.innerHTML=(views[UI.tab]||renderToday)();
+  app.innerHTML=trashBar+(views[UI.tab]||renderToday)();
   renderDrawer();
   if (!UI.modal) $('#modalHost').innerHTML='';
 }
@@ -1458,8 +1518,8 @@ function renderToday(){
         <button class="btn sm" data-act="renewalDismiss" data-key="${esc(r.co.key)}">Not now</button></div></div>`).join(''); }
   if (m.lostDue.length || m.lostSoon){ h += `<h2>Closed-lost follow-ups due <span class="count">${m.lostDue.length}</span></h2><p class="small muted" style="margin-top:-4px">Deals that were quoted and lost, back on the date set from their HubSpot recycle date, renewal or loss reason.${m.lostSoon?` ${m.lostSoon} more ${m.lostSoon===1?'comes':'come'} due in the next 2 weeks.`:''} They're already in HubSpot, so if one books, update the existing record.</p>` +
     m.lostDue.map(c=>{ const L=c.lost||{}, bt=c.bestTime; return `<div class="task ${bandCls(c)}"><div>${who(c,all)}</div>
-      <div class="small"><b>${esc(LOSS_CATS[L.cat||'other'])}</b>${L.date?` · lost ${prettyDate(L.date)}`:''}${L.amount?` · quoted ${money(+L.amount)}`:''}${L.competitor?` · to ${esc(L.competitor)}`:''}${L.reason?`<br><span class="muted">“${esc(L.reason)}”</span>`:''}${L.note?`<br>${esc(L.note)}`:''}${bt?`<br><span class="tag good">Best time: ${esc(bt)}</span>`:''}</div>
-      <div class="outs" style="flex-direction:column;align-items:flex-start"><span class="small muted">Due ${prettyDate(c.revisitDate)}</span><button class="btn sm primary" data-act="startWinback" data-id="${c.id}">Start win-back track</button><div style="display:flex;gap:6px"><button class="btn sm" data-act="snooze" data-id="${c.id}">Snooze 30 days</button><button class="btn sm" data-act="open" data-id="${c.id}">Details</button></div></div></div>`; }).join(''); }
+      <div class="small"><b>${esc(lossSummary(c))}</b>${L.stage?` · ${esc(LOSS_STAGES[L.stage]||'')}`:''}${L.date?` · lost ${prettyDate(L.date)}`:''}${L.amount?` · quoted ${money(+L.amount)}`:''}${L.competitor?` · to ${esc(L.competitor)}`:''}${L.verbatim?`<br><span class="muted">“${esc(L.verbatim.length>160?L.verbatim.slice(0,157)+'…':L.verbatim)}”</span>`:L.reason?`<br><span class="muted">“${esc(L.reason)}”</span>`:''}${L.note?`<br>${esc(L.note)}`:''}${L.nextBid?`<br><span class="tag warn">Next RFP ${prettyDate(L.nextBid)}</span>`:''}${bt?`<br><span class="tag good">Best time: ${esc(bt)}</span>`:''}</div>
+      <div class="outs" style="flex-direction:column;align-items:flex-start"><span class="small muted">Due ${prettyDate(c.revisitDate)}</span><button class="btn sm primary" data-act="startWinback" data-id="${c.id}">${isRfpLoss(c)?'Start RFP check-in':'Start win-back track'}</button><div style="display:flex;gap:6px"><button class="btn sm" data-act="snooze" data-id="${c.id}">Snooze 30 days</button><button class="btn sm" data-act="open" data-id="${c.id}">Details</button></div></div></div>`; }).join(''); }
   if (m.revisits.length){ h += `<h2>Revisits due <span class="count">${m.revisits.length}</span></h2>` + m.revisits.map(c=>`<div class="task"><div>${who(c,all)}</div><div class="small muted">Finished cadence; revisit was ${prettyDate(c.revisitDate)}</div><div class="outs"><button class="btn sm primary" data-act="reengage" data-id="${c.id}">Start re-engage track</button><button class="btn sm" data-act="snooze" data-id="${c.id}">Snooze 30 days</button></div></div>`).join(''); }
   return h;
 }
@@ -1492,7 +1552,7 @@ function taskCall(it, all){
     <div>${who(c,all)}</div>
     <div>${zoneBadge(z.zone)} <b>${z.zone?clockIn(ZONES[z.zone].iana):'?'}</b> their time <span class="win ${it.w.key}">${it.w.label}</span><br><span class="small muted">${windowHint(z.zone, c)}</span></div>
     <div>${stepLine(it)}<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${phones}</div></div>
-    ${c.source==='Closed lost'||c.bestTime?`<div class="small full">${c.source==='Closed lost'?`<span class="tag warn">Closed lost${c.lost?.date?' '+prettyDate(c.lost.date):''}</span> ${esc(LOSS_CATS[c.lost?.cat||'other'])}${c.lost?.amount?` · quoted ${money(+c.lost.amount)}`:''}${c.lost?.competitor?` · to ${esc(c.lost.competitor)}`:''}${c.lost?.note?` · ${esc(c.lost.note)}`:''} `:''}${c.bestTime?`<span class="tag good">Best time: ${esc(c.bestTime)}</span>`:''}</div>`:''}
+    ${c.source==='Closed lost'||c.bestTime?`<div class="small full">${c.source==='Closed lost'?`<span class="tag warn">Closed lost${c.lost?.date?' '+prettyDate(c.lost.date):''}</span> ${esc(lossSummary(c))}${c.lost?.stage?` · ${esc(LOSS_STAGES[c.lost.stage]||'')}`:''}${c.lost?.amount?` · quoted ${money(+c.lost.amount)}`:''}${c.lost?.competitor?` · to ${esc(c.lost.competitor)}`:''}${c.lost?.note?` · ${esc(c.lost.note)}`:''} `:''}${c.bestTime?`<span class="tag good">Best time: ${esc(c.bestTime)}</span>`:''}</div>`:''}
     <details class="script full"><summary>Opener ${opener}: ${esc(o.name)}${v?` · ${esc(vm)}: ${esc(v.name)}`:' · no voicemail'}</summary>
       <div class="say">${sayHtml(fill(o.text,c))}</div>${v?`<div class="small muted">Voicemail (under 25 seconds, then send the matching email today):</div><div class="say">${sayHtml(fill(v.text,c))}</div>`:''}</details>
     ${c.source==='Closed lost'?brushOffs(c):''}
@@ -1609,10 +1669,12 @@ function renderLeads(){
     <select data-filter="sort"><option value="priority" ${UI.sort==='priority'?'selected':''}>Sort: priority</option><option value="company" ${UI.sort==='company'?'selected':''}>Sort: company</option><option value="zone" ${UI.sort==='zone'?'selected':''}>Sort: time zone</option><option value="next" ${UI.sort==='next'?'selected':''}>Sort: next due</option><option value="status" ${UI.sort==='status'?'selected':''}>Sort: status</option></select>
   </div><div class="filters"><span class="small muted">Time zone:</span><div class="chips">${zchips}</div><span class="small muted">${list.length} contact${list.length===1?'':'s'}${list.length>shown.length?` (showing first ${shown.length})`:''}</span></div>`;
   const sel=UI.selected;
+  if (!sel.size) h += `<p class="small muted" style="margin:0 0 8px">Click a lead to edit any detail, change its status, mark it closed-lost or delete it. Tick several to update them together. To update many at once from a file, re-import it on the Import tab with "Update existing leads" ticked.</p>`;
   if (sel.size) h += `<div class="bulk"><b>${sel.size} selected</b>
     <button class="btn sm primary" data-act="bulkStart">Start cadence today</button>
     <select id="bulkOwner"><option value="">Assign to…</option>${s.reps.map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select>
     <select id="bulkStatus"><option value="">Set status…</option>${STATUSES.filter(x=>x!=='Attempting').map(x=>`<option>${x}</option>`).join('')}</select>
+    <select id="bulkLost"><option value="">Mark closed-lost: reason…</option>${Object.entries(LOSS_CATS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
     <button class="btn sm" data-act="bulkHubspot">Export to HubSpot CSV</button>
     <button class="btn sm bad" data-act="bulkDelete">Delete</button>
     <button class="btn sm" data-act="clearSel">Clear</button></div>`;
@@ -1654,6 +1716,7 @@ function renderImport(){
     if (recs.length) h += `<div class="tablewrap"><table><thead><tr><th>Name</th><th>Title</th><th>Company</th><th>Email</th><th>Direct</th><th>Business</th><th>Zone</th></tr></thead><tbody>${recs.slice(0,8).map(r=>{ const a=areaCode(r.directPhone)||areaCode(r.businessPhone); const z=AREA[a]||STATE_ZONE[normState(r.state)]||''; return `<tr><td>${esc(r.name)}</td><td>${esc(r.title)}</td><td>${esc(r.company)}</td><td>${esc(r.email)}</td><td>${esc(r.directPhone)}</td><td>${esc(r.businessPhone)}</td><td>${zoneBadge(z)}</td></tr>`; }).join('')}</tbody></table></div>`;
     h += `<div class="filters" style="margin-top:12px"><label class="small">Assign to ${ownerSel}</label>
       <label class="small">Source <select id="impSource"><option value="auto">Auto (closed lost if it has a loss reason or close date; old lead if it has a last-contacted date or status)</option><option>ZoomInfo</option><option>Old lead</option><option value="Closed lost">Closed lost (HubSpot export)</option></select></label>
+      <label class="chk small" title="Off: a lead already in the planner only gets blanks filled in. On: values in this file replace what's there (empty cells never erase anything)."><input type="checkbox" id="impUpdate"> Update existing leads with this file's values</label>
       <button class="btn primary" data-act="commit" ${recs.length?'':'disabled'}>Import ${recs.length} contacts</button><button class="btn" data-act="cancelDraft">Cancel</button></div></div>`;
   }
   return h;
@@ -1731,8 +1794,9 @@ function renderSettings(){
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Best windows (prospect's local time)</h3><p class="small muted">Ranges like <code>8-11, 16-17</code> or <code>8:30-10:30, 2pm-4pm</code>. "Best" ranks first; "OK" is the fallback.</p>
     <div class="fields">${winInp('call','Calls: best')}${winInp('callOk','Calls: OK')}${winInp('email','Emails: best')}${winInp('emailOk','Emails: OK')}${winInp('linkedin','LinkedIn: best')}${winInp('linkedinOk','LinkedIn: OK')}</div></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Closed-lost follow-up timing</h3><p class="small muted" style="margin-top:0">A HubSpot recycle date always wins. Otherwise a known renewal sets the date; otherwise the loss reason does. These defaults are not in the playbook; agree them with your manager.</p>
-    <div class="fields">${[['price','Price: days after the loss'],['competitor','Competitor: days after the loss'],['timing','Timing: days after the loss'],['nodecision','No decision: days after the loss'],['other','Other: days after the loss'],['renewalLead','Days before a known renewal']].map(([k,l])=>`<label>${l}<input type="number" data-wb="${k}" value="${s.winback[k]}"></label>`).join('')}
-      <label style="grid-column:1/-1">What's new at Peopletrail (fills [What's new] in win-back scripts)<input type="text" data-wb="whatsNew" value="${esc(s.winback.whatsNew||'')}" placeholder="e.g. we added vID identity verification to every package"></label></div></div>
+    <div class="fields">${[...Object.keys(LOSS_CATS).filter(k=>k!=='renewal').map(k=>[k, `${LOSS_CATS[k]}: days after the loss`]), ['renewalLead','Days before a known renewal'], ['bidLead','Days before their next RFP']].map(([k,l])=>`<label>${l}<input type="number" data-wb="${k}" value="${s.winback[k]}"></label>`).join('')}
+      <label style="grid-column:1/-1">What's new at Peopletrail (fills [What's new] in win-back scripts)<input type="text" data-wb="whatsNew" value="${esc(s.winback.whatsNew||'')}" placeholder="e.g. we added vID identity verification to every package"></label>
+      <label style="grid-column:1/-1">Industry proof (fills [Industry proof] for prospects who want a specialist)<input type="text" data-wb="industryProof" value="${esc(s.winback.industryProof||'')}" placeholder="e.g. We screen for 40 home health agencies, including state-specific registry checks"></label></div></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Optimal scoring and account size</h3><p class="small muted" style="margin-top:0">The Mid-sized green light is set automatically for Prime accounts (gold). You can still override it per company in the contact card.</p><div class="fields">
       <label>Average revenue per check ($, for account size)<input type="number" step="1" data-spend="pricePerCheck" value="${s.spend.pricePerCheck}"></label>
       <label>Prime account from ($ a year)<input type="number" step="1000" data-spend="primeMin" value="${s.spend.primeMin}"></label>
@@ -1828,6 +1892,7 @@ function kpiModel(){
     dialsPer: r90.meetings ? r90.dials/r90.meetings : null, need: r90.meetings && bizMonth ? (goal/nReps)/bizMonth*(r90.dials/r90.meetings) : null, r90};
   return {list, p, from, to, days, sum, weeks, byRep, status, pace,
     steps:kpiSteps(list, from, to), hours:kpiHours(list, from, to),
+    lossRsn:kpiGroups(list.filter(c=>c.source==='Closed lost'), from, to, c=>{ const k=lossKeyOf(c); return [Object.keys(LOSS_OPENER).indexOf(k), k==='multi'?'Several reasons':LOSS_CATS[k]||k]; }),
     source:kpiGroups(list, from, to, c=>{ const o=['ZoomInfo','Old lead','Closed lost']; const i=o.indexOf(c.source); return [i<0?9:i, c.source||'Other']; }),
     persona:kpiGroups(list, from, to, c=>{ const k=persona(c); return [Object.keys(PERSONAS).indexOf(k), PERSONAS[k].label]; }),
     spend:kpiGroups(list, from, to, c=>spendBand(company(c))),
@@ -1873,6 +1938,7 @@ function renderKpi(){
   const grp=(title, note, rows)=>`<h2>${title}</h2>${note?`<p class="small muted" style="margin-top:-4px">${note}</p>`:''}${rows.length?`<div class="tablewrap"><table><thead><tr><th></th><th>Contacts worked</th><th>Dials</th><th>Live rate</th><th>Reply rate</th><th>Reached</th><th>Meetings</th><th>Meetings per 100 contacts</th></tr></thead><tbody>${rows.map(r=>`<tr><td><b>${esc(r.label)}</b></td><td>${r.touched}</td><td>${r.dials}</td><td>${pct(r.live,r.dials)}</td><td>${pct(r.replies,r.emails)}</td><td>${pct(r.reached,r.touched)}</td><td>${r.meetings}</td><td>${r.touched?(100*r.meetings/r.touched).toFixed(1):'–'}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">No activity in this period.</div>'}`;
   h += grp('By account size (est. annual check spend)', `Prime is ${money(DB.settings.spend.primeMin)}–${money(DB.settings.spend.primeMax)} a year at $${DB.settings.spend.pricePerCheck} a check. Prime accounts get the Mid-sized green light; if they book best, the targeting is working.`, m.spend);
   h += grp('By Optimal score', 'If the score works, higher scores should reach and book more often.', m.opt);
+  h += grp('Closed-lost win-backs by loss reason', 'Which loss reasons come back. Grouped by the reason that picks the script.', m.lossRsn);
   h += grp('By lead source', 'Closed-lost win-backs next to new and old leads.', m.source);
   h += grp('By persona', '', m.persona);
   h += `<h2>Pipeline now</h2><div class="seg">${STATUSES.filter(s=>m.status[s]).map(s=>`<span class="tag ${s==='Discovery booked'?'good':s==='Paused'?'warn':''}" style="font-size:13px;padding:4px 10px">${s}: <b>${m.status[s]}</b></span>`).join('')}</div>`;
@@ -1896,7 +1962,7 @@ function exportKpi(){
   add([['Track','Day','Step','Channel','Done','Responses','Rate','Meetings started here'], ...m.steps.filter(x=>x.done||x.track===TRACK_LABEL.cold).map(x=>[x.track,x.day,x.label,CH_LABEL[x.ch],x.done,x.resp,r(x.resp,x.done),x.meet])], 'By step', [26,6,40,9,7,10,8,20]);
   add([['Prospect local hour','Dials','Live','Live rate'], ...m.hours.rows.map(x=>[x.label,x.dials,x.live,r(x.live,x.dials)])], 'By hour', [18,8,8,10]);
   const g=rows=>[['Group','Contacts worked','Dials','Live rate','Reply rate','Reached rate','Meetings','Meetings per 100 contacts'], ...rows.map(x=>[x.label,x.touched,x.dials,r(x.live,x.dials),r(x.replies,x.emails),r(x.reached,x.touched),x.meetings,x.touched?+(100*x.meetings/x.touched).toFixed(1):''])];
-  add(g(m.spend),'By account size',[26,16,8,10,10,12,9,22]); add(g(m.opt),'By Optimal score',[14,16,8,10,10,12,9,22]); add(g(m.source),'By lead source',[16,16,8,10,10,12,9,22]); add(g(m.persona),'By persona',[30,16,8,10,10,12,9,22]);
+  add(g(m.spend),'By account size',[26,16,8,10,10,12,9,22]); add(g(m.opt),'By Optimal score',[14,16,8,10,10,12,9,22]); add(g(m.lossRsn),'Win-backs by loss reason',[30,16,8,10,10,12,9,22]); add(g(m.source),'By lead source',[16,16,8,10,10,12,9,22]); add(g(m.persona),'By persona',[30,16,8,10,10,12,9,22]);
   XLSX.writeFile(wb, `kpi-${fileTag()}-${m.p}-${todayStr()}.xlsx`);
 }
 
@@ -1911,8 +1977,10 @@ function renderDrawer(){
     <div style="display:flex;justify-content:space-between;gap:8px;align-items:start"><div><h3 style="margin:0">${esc(c.name)}</h3><div class="muted small">${esc(c.title)} · ${esc(co.name)}</div></div><button class="btn sm" data-act="close">Close</button></div>
     <div style="margin:10px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="tag">${esc(c.status)}</span>${zoneBadge(z.zone)} <span class="small muted">${z.zone?clockIn(ZONES[z.zone].iana)+' · ':''}from ${esc(z.src)}</span>${c.pauseReason&&c.status==='Paused'?`<span class="tag warn">${esc(c.pauseReason)}</span>`:''}${c.alsoOn?`<span class="tag bad">${esc(c.alsoOn)}: agree who keeps it, set the owner, then <button class="btn sm" data-act="clearAlso" data-id="${c.id}">Mark sorted</button></span>`:''}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
-      ${c.status==='Attempting'?`<button class="btn sm" data-act="stop" data-id="${c.id}">Stop cadence</button>`:`<button class="btn sm primary" data-act="startOne" data-id="${c.id}">${(c.touches||[]).length?'Restart':'Start'} ${c.source==='Old lead'?'re-engage track':'cold cadence'} today</button>`}
+      ${c.status==='Attempting'?`<button class="btn sm" data-act="stop" data-id="${c.id}">Stop cadence</button>`:`<button class="btn sm primary" data-act="startOne" data-id="${c.id}">${(c.touches||[]).length?'Restart':'Start'} ${({cold:'cold cadence',reengage:'re-engage track',winback:'win-back track',rfp:'RFP check-in'})[trackFor(c)]} today</button>`}
       ${c.status==='Paused'?`<button class="btn sm" data-act="setStatus" data-id="${c.id}" data-status="New">Resume (back to queue)</button>`:''}
+      ${c.source!=='Closed lost'?`<button class="btn sm" data-act="markLost" data-id="${c.id}">Mark as closed-lost</button>`:''}
+      <button class="btn sm bad" data-act="deleteOne" data-id="${c.id}">Delete lead</button>
       ${(c.touches||[]).length||c.lastReply?`<button class="btn sm" data-act="undo" data-id="${c.id}">${c.lastReply?'Undo last reply / touch':'Undo last touch'}</button>`:''}
     </div>
     ${n?`<div class="card" style="margin-bottom:12px"><b>Next:</b> ${esc(n.step.label)} · ${prettyDate(n.due)}</div>`:''}
@@ -1929,13 +1997,17 @@ function renderDrawer(){
       <label style="grid-column:1/-1">Best time to reach (their time; e.g. "Tue/Thu 8-9am", "after 2pm")<input type="text" data-cf="bestTime" value="${esc(c.bestTime||'')}" placeholder="Leave blank to use the standard call windows"></label>
       ${c.bestTime?`<div class="small muted" style="grid-column:1/-1;margin-top:-6px">${(()=>{ const b=bestTime(c); return b.wins.length||b.days.length ? `Read as: ${b.wins.map(([a,z])=>fmtHour(a)+'–'+fmtHour(z)).join(', ')||'any time'}${b.days.length?' on '+b.days.join('/'):''}. Calls are planned and sorted to match.` : 'Not read as a time; shown on call cards as a note.'; })()}</div>`:''}
       ${c.source==='Closed lost'?(()=>{ const L=c.lost||{}, fu=lostFollowUp(c); return `<div style="grid-column:1/-1;border-top:1px dashed var(--line);padding-top:8px"><b>Closed-lost deal</b> <span class="small muted">already in HubSpot${L.hubspotId?` · record ${esc(L.hubspotId)}`:''}${L.dealName?` · ${esc(L.dealName)}`:''}</span></div>
-        <label>Loss reason<select data-lost="cat">${Object.entries(LOSS_CATS).map(([k,v])=>`<option value="${k}" ${(L.cat||'other')===k?'selected':''}>${v}</option>`).join('')}</select></label>
+        <label style="grid-column:1/-1">Their response, pasted (optional; the app reads the competitor and reasons from it)<textarea data-lost="verbatim" rows="3" placeholder="e.g. First Advantage is who we have chosen. Pricing was a huge contributor...">${esc(L.verbatim||'')}</textarea></label>
+        <div style="grid-column:1/-1"><div class="small muted" style="margin-bottom:4px">Why they went another way (tick all that apply; the first ticked picks the script)</div><div style="display:flex;flex-wrap:wrap;gap:4px 14px">${Object.entries(LOSS_CATS).map(([k,v])=>`<label class="chk small"><input type="checkbox" data-lostreason="${k}" ${lossReasons(L).includes(k)?'checked':''}> ${v}</label>`).join('')}</div></div>
+        <label>How far it got<select data-lost="stage">${Object.entries(LOSS_STAGES).map(([k,v])=>`<option value="${k}" ${(L.stage||'talked')===k?'selected':''}>${v}</option>`).join('')}</select></label>
+        <div class="small" style="align-self:end">Scripts: <b>${esc(OPENERS[LOSS_OPENER[lossKeyOf(c)]]?.name||'')}</b></div>
         <label>Lost on<input type="date" data-lost="date" value="${esc(L.date||'')}"></label>
         <label>Quoted amount ($ a year)<input type="number" data-lost="amount" value="${esc(L.amount||'')}"></label>
         <label>Lost to<input type="text" data-lost="competitor" value="${esc(L.competitor||'')}"></label>
         <label style="grid-column:1/-1">What they said (fills [Loss detail])<input type="text" data-lost="note" value="${esc(L.note||'')}" placeholder="e.g. turnaround on county records was slowing hires"></label>
         ${L.reason?`<div class="small muted" style="grid-column:1/-1">HubSpot reason: “${esc(L.reason)}”</div>`:''}
         <label>Recycle date (HubSpot)<input type="date" data-lost="recycle" value="${esc(L.recycle||'')}"></label>
+        ${lossReasons(L).some(k=>k==='rfpBid'||k==='rfpTerms')?`<label>Next RFP / bid date<input type="date" data-lost="nextBid" value="${esc(L.nextBid||'')}"></label>`:''}
         <div class="small" style="align-self:end">Follow up on <b>${prettyDate(c.status==='Nurture'&&c.revisitDate?c.revisitDate:fu.date)}</b><br><span class="muted">${esc(fu.why)}</span>${c.status==='Nurture'?` <button class="btn sm" data-act="lostRecalc" data-id="${c.id}">Recalculate</button>`:''}</div>`; })():''}
       ${c.status==='Attempting'?`<label>Cadence start<input type="date" data-cf="startDate" value="${esc(c.startDate)}"></label>`:''}
       <div class="small" style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${c.emailBad?'<span class="tag bad">Email bounced: add a new address</span>':''}${c.emailBlocked||co.emailBlocked?'<span class="tag bad">Blocked by their server</span>':''}<button class="btn sm" data-act="replyOpen" data-id="${c.id}">Log an email reply</button><button class="btn sm" data-act="bounceOpen" data-id="${c.id}">Report a bounce</button>
@@ -2097,11 +2169,14 @@ document.addEventListener('click', e=>{
     case 'kpiPeriod': UI.kpi.period=el.dataset.p; render(); break;
     case 'kpiExport': exportKpi(); break;
     case 'renewalDismiss': { const co=DB.companies[el.dataset.key]; if (co){ co.renewalDismissed=co.renewalDate; for (const x of DB.contacts) if (x.companyKey===co.key) touch(x); save(); render(); toast(`Hidden until the renewal date changes`); } } break;
-    case 'startWinback': if (c){ c.source='Closed lost'; startCadence(c); save(); render(); toast(`Win-back started for ${c.name}: call 1 is on today's list`); } break;
+    case 'startWinback': if (c){ c.source='Closed lost'; startCadence(c); save(); render(); toast(`${c.track==='rfp'?'RFP check-in':'Win-back'} started for ${c.name}: call 1 is on today's list`); } break;
     case 'lostRecalc': if (c){ c.revisitDate=lostFollowUp(c).date; touch(c); save(); render(); toast(`Follow-up set for ${prettyDate(c.revisitDate)}`); } break;
     case 'clearAlso': if (c){ c.alsoOn=''; touch(c); save(); render(); } break;
     case 'snooze': if (c){ c.revisitDate=addDays(todayStr(),30); touch(c); save(); render(); } break;
-    case 'deleteOne': if (c && confirm(`Delete ${c.name}?`)){ DB.contacts=DB.contacts.filter(x=>x!==c); UI.drawer=null; save(); render(); } break;
+    case 'deleteOne': if (c && confirm(`Delete ${c.name}? You can undo right after.`)){ UI.trash={items:[c], at:Date.now()}; DB.contacts=DB.contacts.filter(x=>x!==c); UI.drawer=null; save(); render(); } break;
+    case 'dismissTrash': UI.trash=null; render(); break;
+    case 'undoDelete': if (UI.trash){ DB.contacts.push(...UI.trash.items); const n=UI.trash.items.length; UI.trash=null; save(); render(); toast(`Restored ${n} lead${n===1?'':'s'}`); } break;
+    case 'markLost': if (c){ if (['Attempting','Connected','Discovery booked','Paused','New'].includes(c.status)){ c.status='Nurture'; c.pauseReason=''; } applyLost(c, {date:todayStr()}); c.revisitDate=lostFollowUp(c).date; touch(c); save(); render(); toast(`${c.name} marked closed-lost. Fill in why below.`); } break;
     case 'zone': { const z=el.dataset.zone; UI.f.zones.has(z)?UI.f.zones.delete(z):UI.f.zones.add(z); render(); } break;
     case 'sel': e.stopPropagation(); el.checked?UI.selected.add(id):UI.selected.delete(id); render(); break;
     case 'selAll': { const ids=filteredContacts().slice(0,600).map(x=>x.id); if (el.checked) ids.forEach(i=>UI.selected.add(i)); else ids.forEach(i=>UI.selected.delete(i)); render(); } break;
@@ -2109,7 +2184,7 @@ document.addEventListener('click', e=>{
     case 'bulkStart': { let k=0; for (const x of DB.contacts) if (UI.selected.has(x.id) && !['Attempting','Do not contact','Discovery booked'].includes(x.status)){ startCadence(x); k++; } UI.selected.clear(); save(); render(); toast(`Started ${k}`); } break;
     case 'bulkHubspot': exportHubspot(DB.contacts.filter(x=>UI.selected.has(x.id))); break;
     case 'hubspotBooked': exportHubspot(DB.contacts.filter(x=>x.status==='Discovery booked')); break;
-    case 'bulkDelete': if (confirm(`Delete ${UI.selected.size} contacts?`)){ DB.contacts=DB.contacts.filter(x=>!UI.selected.has(x.id)); UI.selected.clear(); save(); render(); } break;
+    case 'bulkDelete': if (confirm(`Delete ${UI.selected.size} leads? You can undo right after.`)){ UI.trash={items:DB.contacts.filter(x=>UI.selected.has(x.id)), at:Date.now()}; DB.contacts=DB.contacts.filter(x=>!UI.selected.has(x.id)); UI.selected.clear(); save(); render(); } break;
     case 'parsePaste': { const t=$('#pasteIn').value; if (!t.trim()) return;
       const first=t.split(/\r?\n/).find(l=>l.trim())||'';
       if (/employees|annual hires/i.test(first) || /^\s*#\s*$/m.test(t)){ UI.draft={label:'Pasted lead report', records:parseReportPaste(t)}; }
@@ -2117,7 +2192,7 @@ document.addEventListener('click', e=>{
       else { UI.draft={label:'Pasted text', records:parseReportPaste(t)}; }
       render(); } break;
     case 'cancelDraft': UI.draft=null; render(); break;
-    case 'commit': { const d=UI.draft; const recs=d.records||rowsToRecords(d.rows,d.map); const r=commitRecords(recs, $('#impOwner').value, $('#impSource').value); UI.draft=null; UI.tab='leads'; render(); { const due=DB.contacts.filter(x=>x.source==='Closed lost' && x.status==='Nurture' && x.revisitDate<=todayStr()).length; toast(`${r.added} added, ${r.updated} updated (duplicates merged)${due?` · ${due} closed-lost follow-ups due now on Today`:''}`); } } break;
+    case 'commit': { const d=UI.draft; const recs=d.records||rowsToRecords(d.rows,d.map); const r=commitRecords(recs, $('#impOwner').value, $('#impSource').value, $('#impUpdate')?.checked); UI.draft=null; UI.tab='leads'; render(); { const due=DB.contacts.filter(x=>x.source==='Closed lost' && x.status==='Nurture' && x.revisitDate<=todayStr()).length; toast(`${r.added} added, ${r.updated} updated (duplicates merged)${due?` · ${due} closed-lost follow-ups due now on Today`:''}`); } } break;
     case 'demo': loadDemo(); break;
     case 'wipe': if (confirm('Erase every contact, company and touch in this browser? Download the tracker first if you need it.') && confirm('Are you sure? This cannot be undone.')){ DB.contacts=[]; DB.companies={}; DB.lastExport=null; save(); render(); } break;
     /* run sheet */
@@ -2181,13 +2256,22 @@ document.addEventListener('change', async e=>{
   if (d.persona){ PERSONAS[d.persona][d.k]=el.value; DB.custom.personas[d.persona]={...(DB.custom.personas[d.persona]||{}), [d.k]:el.value}; save(); render(); return; }
   if (d.filter && d.filter!=='q'){ if (d.filter==='sort') UI.sort=el.value; else UI.f[d.filter]= d.filter==='minOpt' ? +el.value : el.value; render(); return; }
   if (d.map){ UI.draft.map[d.map]=el.value; render(); return; }
+  if (el.id==='bulkLost' && el.value){ let n=0; for (const x of DB.contacts) if (UI.selected.has(x.id)){ const L=x.lost||{}; const rs=x.source==='Closed lost' ? [...lossReasons(L).filter(k=>k!=='other' && k!==el.value), el.value] : [el.value];
+      if (x.source!=='Closed lost' && ['Attempting','Connected','Discovery booked','Paused','New'].includes(x.status)){ x.status='Nurture'; x.pauseReason=''; } applyLost(x, {reasons:rs, date:L.date||todayStr()}); x.lost.reasons=rs; x.lost.cat=rs[0]; if (x.status==='Nurture') x.revisitDate=lostFollowUp(x).date; touch(x); n++; }
+    save(); render(); toast(`${n} lead${n===1?'':'s'} marked closed-lost: ${LOSS_CATS[el.value]}. Follow-up dates set.`); return; }
   if (el.id==='bulkOwner' && el.value){ for (const x of DB.contacts) if (UI.selected.has(x.id)){ x.owner=el.value; touch(x); } save(); render(); return; }
   if (el.id==='bulkStatus' && el.value){ for (const x of DB.contacts) if (UI.selected.has(x.id)){ x.status=el.value; if (el.value==='Discovery booked' && !x.discoveryDate) x.discoveryDate=todayStr(); if (el.value==='Nurture') x.revisitDate=addDays(todayStr(),90); touch(x); } save(); render(); return; }
   if (d.rep){ const r=DB.settings.reps.find(x=>x.id===d.rep); if (r){ r[d.rf]=el.value; save(); renderHeader(); } return; }
   if (d.cap){ DB.settings.caps[d.cap]=Math.max(0,+el.value||0); save(); return; }
   if (d.spend){ DB.settings.spend[d.spend]=Math.max(0,+el.value||0); save(); render(); return; }
-  if (d.lost){ const c=DB.contacts.find(x=>x.id===UI.drawer); if (c){ c.lost=c.lost||{}; c.lost[d.lost]=el.value; touch(c); save(); render(); } return; }
-  if (d.wb){ DB.settings.winback[d.wb]= d.wb==='whatsNew' ? el.value : Math.max(0,+el.value||0); save(); render(); return; }
+  if (d.lost){ const c=DB.contacts.find(x=>x.id===UI.drawer); if (c){ const L=c.lost=c.lost||{}; L[d.lost]=el.value;
+      if (d.lost==='verbatim'){ const det=detectLoss(el.value); if (det.reasons.length){ L.reasons=det.reasons; L.cat=det.reasons[0]; } if (det.competitor){ L.competitor=det.competitor; if (!company(c).provider) company(c).provider=det.competitor; }
+        toast(det.reasons.length||det.competitor ? `Read from their response: ${[det.competitor&&'chose '+det.competitor, det.reasons.filter(r=>r!=='competitor').map(k=>LOSS_CATS[k]).join(', ')].filter(Boolean).join(' · ')}. Check the boxes.` : 'Saved. No reasons recognized; tick them below.'); }
+      if (c.status==='Nurture') c.revisitDate=lostFollowUp(c).date;
+      touch(c); save(); render(); } return; }
+  if (d.lostreason){ const c=DB.contacts.find(x=>x.id===UI.drawer); if (c){ const L=c.lost=c.lost||{}; let rs=lossReasons(L).filter(k=>k!=='other' || el.checked && d.lostreason==='other');
+      rs = el.checked ? [...rs.filter(k=>k!==d.lostreason), d.lostreason] : rs.filter(k=>k!==d.lostreason); if (!rs.length) rs=['other']; L.reasons=rs; L.cat=rs[0]; if (c.status==='Nurture') c.revisitDate=lostFollowUp(c).date; touch(c); save(); render(); } return; }
+  if (d.wb){ DB.settings.winback[d.wb]= ['whatsNew','industryProof'].includes(d.wb) ? el.value : Math.max(0,+el.value||0); save(); render(); return; }
   if (d.goal){ DB.settings.goals[d.goal]=Math.max(0,+el.value||0); save(); return; }
   if (d.rate){ DB.settings.rates[d.rate]=Math.max(1,+el.value||1); save(); return; }
   if (d.mid){ DB.settings.mid[d.mid]=Math.max(0,+el.value||0); save(); return; }
