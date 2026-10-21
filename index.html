@@ -455,6 +455,7 @@ const DEFAULT_SETTINGS = {
   goals:{discoveryMonth:12.5},
   spend:{pricePerCheck:45, primeMin:10000, primeMax:150000},
   daysOff:[],
+  hubspot:{lifecycle:'', status:{}},
   winback:{price:90, tech:120, service:120, competitor:120, industry:180, notint:180, timing:90, nodecision:45, renewal:90, rfpBid:365, rfpTerms:365, other:90, renewalLead:90, bidLead:60, whatsNew:'', industryProof:''},
 };
 let DB = {contacts:[], companies:{}, settings:structuredClone(DEFAULT_SETTINGS), custom:{}, lastExport:null, lastChange:null, setupDone:false};
@@ -514,7 +515,7 @@ async function load(){
     DB = Object.assign(DB, data);
     const ds = structuredClone(DEFAULT_SETTINGS), s = data.settings || {};
     DB.settings = Object.assign(ds, s);
-    for (const k of ['caps','windows','rates','mid','goals','spend','winback']) DB.settings[k] = Object.assign(structuredClone(DEFAULT_SETTINGS[k]), s[k]||{});
+    for (const k of ['caps','windows','rates','mid','goals','spend','winback','hubspot']) DB.settings[k] = Object.assign(structuredClone(DEFAULT_SETTINGS[k]), s[k]||{});
     if (data.setupDone===undefined) DB.setupDone = true; /* browsers in use before the first-run screen existed */
   }
   try { await navigator.storage?.persist?.(); } catch(e){}
@@ -1141,6 +1142,7 @@ const FIELD_DEFS = [
   ['employees','Employees',['employees','employee count','number of employees','company employee count','headcount']],
   ['annualHires','Est. annual hires',['est annual hires','est. annual hires','estimated annual hires','annual hires','hires per year']],
   ['industry','Industry',['industry','primary industry']],
+  ['website','Website / domain',['website','company website','website url','company domain name','company domain','domain']],
   ['lastContacted','Last contacted (old leads)',['last contacted','last activity','last activity date','last contact date','last touch','last contact']],
   ['priorStatus','Prior status / outcome',['status','lead status','prior status','last outcome','disposition']],
   ['owner','Owner / rep',['owner','rep','assigned to','contact owner','sales rep']],
@@ -1179,7 +1181,7 @@ function rowsToRecords(rows, map){
       linkedin: /linkedin\.com/i.test(li) ? li : '', liKnown: !!li, company:g(r,'company'), state:g(r,'state'), city:g(r,'city'),
       employees:num(g(r,'employees')), annualHires:num(g(r,'annualHires')), industry:g(r,'industry'),
       lastContacted:g(r,'lastContacted'), priorStatus:g(r,'priorStatus'), owner:g(r,'owner'), notes:g(r,'notes'),
-      lossReason:g(r,'lossReason'), lossDate:toYmd(g(r,'lossDate')), recycle:toYmd(g(r,'recycle')), quote:num(g(r,'quote')), competitor:g(r,'competitor'), renewal:toYmd(g(r,'renewal')),
+      website:g(r,'website'), lossReason:g(r,'lossReason'), lossDate:toYmd(g(r,'lossDate')), recycle:toYmd(g(r,'recycle')), quote:num(g(r,'quote')), competitor:g(r,'competitor'), renewal:toYmd(g(r,'renewal')),
       bestTime:g(r,'bestTime'), hubspotId:g(r,'hubspotId'), dealName:g(r,'dealName')};
   }).filter(x=>x.name && x.company);
 }
@@ -1223,6 +1225,7 @@ function commitRecords(recs, ownerId, sourceMode, updateExisting){
     for (const f of ['state','city','employees','annualHires','industry']) if (!co[f] && r[f]) co[f]=r[f];
     const ex = (r.email && byEmail.get(r.email)) || byName.get(norm(r.name)+'|'+key);
     if (isValidYmd(r.renewal) && !co.renewalDate) co.renewalDate=r.renewal;
+    if (r.website && !co.domain) co.domain=cleanDomain(r.website);
     const src = sourceMode==='auto' ? ((r.lossReason||r.lossDate||r.recycle) ? 'Closed lost' : (r.lastContacted||r.priorStatus) ? 'Old lead' : 'ZoomInfo') : sourceMode;
     const det=detectLoss(r.lossReason);
     const lostInfo = {reason:r.lossReason||'', reasons:det.reasons, date:r.lossDate||'', recycle:r.recycle||'', amount:r.quote||'', competitor:r.competitor||det.competitor||'', hubspotId:r.hubspotId||'', dealName:r.dealName||''};
@@ -1253,11 +1256,11 @@ function buildTrackerWorkbook(){
       'Discovery Date':c.discoveryDate||'','Pause Reason':c.pauseReason,'Phone Bad':yn(c.phoneBad),'Email Bad':yn(c.emailBad),'Last Contacted (import)':c.lastContacted,
       'Prior Status (import)':c.priorStatus,'Notes':c.notes,'Email Blocked':yn(c.emailBlocked),
       'Next Call-back':(()=>{ const r=pendingRecalls(c)[0]; return r?`${r.date} ${fmtHour(hrs(r.time))} (their ${r.their})`:''; })(),
-      'Call-backs (data)':JSON.stringify(c.recalls||[]),'Bounces (data)':JSON.stringify(c.bounces||[]),'Both Reps Had It':c.alsoOn||'','Referred By':c.referredBy||'','LinkedIn Status':c.liState||'','LinkedIn Since':c.liSince||'','Best Time':c.bestTime||'','LinkedIn Waiting (data)':c.liWait?JSON.stringify(c.liWait):'','Unqualified Reason':c.unqualReason||'','Created At':c.createdAt?new Date(c.createdAt).toISOString():'','Moved Steps (data)':c.defer&&Object.keys(c.defer).length?JSON.stringify(c.defer):'','Loss Reason':c.lost?LOSS_CATS[c.lost.cat||'other']:'','Lost On':c.lost?.date||'','Quoted Amount':c.lost?.amount||'','Lost To':c.lost?.competitor||'','Closed-lost (data)':c.lost?JSON.stringify(c.lost):'','Updated At':new Date(c.updatedAt||Date.now()).toISOString()}; });
+      'Call-backs (data)':JSON.stringify(c.recalls||[]),'Bounces (data)':JSON.stringify(c.bounces||[]),'Both Reps Had It':c.alsoOn||'','Referred By':c.referredBy||'','LinkedIn Status':c.liState||'','LinkedIn Since':c.liSince||'','Best Time':c.bestTime||'','HubSpot Exported':c.hsExported||'','LinkedIn Waiting (data)':c.liWait?JSON.stringify(c.liWait):'','Unqualified Reason':c.unqualReason||'','Created At':c.createdAt?new Date(c.createdAt).toISOString():'','Moved Steps (data)':c.defer&&Object.keys(c.defer).length?JSON.stringify(c.defer):'','Loss Reason':c.lost?LOSS_CATS[c.lost.cat||'other']:'','Lost On':c.lost?.date||'','Quoted Amount':c.lost?.amount||'','Lost To':c.lost?.competitor||'','Closed-lost (data)':c.lost?JSON.stringify(c.lost):'','Updated At':new Date(c.updatedAt||Date.now()).toISOString()}; });
   const T = []; for (const c of DB.contacts) for (const t of allTouches(c)) T.push({'PT_ID':c.id,'Contact':c.name,'Company':company(c).name,'Date':t.date,'Step ID':t.step,'Channel':CH_LABEL[t.ch]||t.ch,'Step':t.label,'Outcome':t.outcome,'Logged At':t.at,'Logged From':t.sheet?'Run sheet':'App','Earlier cadence':t.archived?(t.track||'cold'):'','Reply Logged':t.replyDate||'','Auto-reply':t.autoReply||''});
   const K = Object.values(DB.companies).map(co=>({'Company Key':co.key,'Company':co.name,'State':co.state,'City':co.city,'Employees':co.employees,'Est Annual Hires':co.annualHires,'Industry':co.industry,
     'Mid-sized':isMid(co)?'Yes':'','Mid-sized Override':co.midOverride===true?'Yes':co.midOverride===false?'No':'','Higher-touch':yn(co.higherTouch),'Organized':yn(co.organized),
-    'Optimal Score':optimal(co),'Trigger':co.trigger,'Trigger Note':co.triggerNote,'Trigger Date':co.triggerDate,'Current Provider':co.provider,'Renewal Date':co.renewalDate,'Renewal Dismissed':co.renewalDismissed||'','Quoted Amount':co.quote||'','Emails Paused':yn(co.emailBlocked)}));
+    'Optimal Score':optimal(co),'Trigger':co.trigger,'Trigger Note':co.triggerNote,'Trigger Date':co.triggerDate,'Current Provider':co.provider,'Renewal Date':co.renewalDate,'Renewal Dismissed':co.renewalDismissed||'','Domain':co.domain||'','Quoted Amount':co.quote||'','Emails Paused':yn(co.emailBlocked)}));
   const cfg = JSON.stringify({custom:DB.custom, settings:{...DB.settings, currentRep:undefined}, exportedBy:{id:DB.settings.currentRep, name:DB.settings.currentRep==='all'?'Both reps':repName(DB.settings.currentRep)}});
   const Cfg = []; for (let i=0;i<cfg.length;i+=30000) Cfg.push({'Part':Cfg.length+1,'Config (scripts, cadence, schedule, settings — do not edit)':cfg.slice(i,i+30000)});
   const wb = XLSX.utils.book_new();
@@ -1278,15 +1281,15 @@ function readConfig(wb){
 }
 /* Shared = team playbook (scripts, cadence, personas, windows, scoring). Personal = your schedule, caps, rates.
    A teammate's tracker only brings the shared part; your own backup brings both. Your rep name and phone never change. */
-const SHARED_SET = ['windows','mid','address','optOut','maxPerCompany','spend','winback'], PERSONAL_SET = ['caps','rates','connectRate','goals','daysOff'];
+const SHARED_SET = ['windows','mid','address','optOut','maxPerCompany','spend','winback','hubspot'], PERSONAL_SET = ['caps','rates','connectRate','goals','daysOff'];
 const sharedPart = (custom, settings) => JSON.stringify({sc:custom?.scripts||{}, tr:custom?.tracks||{}, pe:custom?.personas||{}, st:SHARED_SET.map(k=>settings?.[k])});
 const isPlaceholderRep = n => !String(n||'').trim() || /^rep \d+$/i.test(String(n).trim());
 function mergeReps(incoming){
   const reps=DB.settings.reps, me=DB.settings.currentRep;
   for (const r of (incoming||[])){ if (!r || !r.id) continue;
     const local=reps.find(x=>x.id===r.id);
-    if (local){ if (local.id===me) continue; if (!isPlaceholderRep(r.name) && !reps.some(x=>x!==local && x.name.toLowerCase()===r.name.toLowerCase())) local.name=r.name; if (r.phone) local.phone=r.phone; }
-    else if (!isPlaceholderRep(r.name) && !reps.some(x=>x.name.toLowerCase()===r.name.toLowerCase())) reps.push({id:r.id, name:r.name, phone:r.phone||''});
+    if (local){ if (local.id===me) continue; if (!isPlaceholderRep(r.name) && !reps.some(x=>x!==local && x.name.toLowerCase()===r.name.toLowerCase())) local.name=r.name; if (r.phone) local.phone=r.phone; if (r.hsEmail) local.hsEmail=r.hsEmail; }
+    else if (!isPlaceholderRep(r.name) && !reps.some(x=>x.name.toLowerCase()===r.name.toLowerCase())) reps.push({id:r.id, name:r.name, phone:r.phone||'', hsEmail:r.hsEmail||''});
   }
 }
 function applyConfig(cfg, own){
@@ -1326,7 +1329,7 @@ function restoreTracker(wb){
       name:r['Company']||ex.name, state:r['State']||ex.state||'', city:r['City']||ex.city||'', employees:num(r['Employees'])||ex.employees||'', annualHires:num(r['Est Annual Hires'])||ex.annualHires||'',
       industry:r['Industry']||ex.industry||'', higherTouch:fromYn(r['Higher-touch'])||!!ex.higherTouch, organized:fromYn(r['Organized'])||!!ex.organized,
       midOverride: r['Mid-sized Override']==='Yes'?true : r['Mid-sized Override']==='No'?false : (ex.midOverride??null),
-      trigger:r['Trigger']||ex.trigger||'', triggerNote:r['Trigger Note']||ex.triggerNote||'', triggerDate:r['Trigger Date']||ex.triggerDate||'', provider:r['Current Provider']||ex.provider||'', renewalDate:r['Renewal Date']||ex.renewalDate||'', renewalDismissed:r['Renewal Dismissed']||ex.renewalDismissed||'', quote:+r['Quoted Amount']||ex.quote||'', emailBlocked:fromYn(r['Emails Paused'])||!!ex.emailBlocked}); }
+      trigger:r['Trigger']||ex.trigger||'', triggerNote:r['Trigger Note']||ex.triggerNote||'', triggerDate:r['Trigger Date']||ex.triggerDate||'', provider:r['Current Provider']||ex.provider||'', renewalDate:r['Renewal Date']||ex.renewalDate||'', renewalDismissed:r['Renewal Dismissed']||ex.renewalDismissed||'', domain:r['Domain']||ex.domain||'', quote:+r['Quoted Amount']||ex.quote||'', emailBlocked:fromYn(r['Emails Paused'])||!!ex.emailBlocked}); }
   const touches={}; for (const t of T){ (touches[t['PT_ID']] ||= []).push({step:t['Step ID'], ch:Object.keys(CH_LABEL).find(k=>CH_LABEL[k]===t['Channel'])||t['Channel'], label:t['Step'], date:toYmd(t['Date']), outcome:t['Outcome'], at:t['Logged At'], ...(t['Logged From']==='Run sheet'?{sheet:true}:{}), ...(t['Earlier cadence']?{archived:true, track:t['Earlier cadence']}:{}), ...(t['Reply Logged']?{replyDate:toYmd(t['Reply Logged'])}:{}), ...(t['Auto-reply']?{autoReply:t['Auto-reply']}:{})}); }
   const byId=new Map(DB.contacts.map(c=>[c.id,c])); let added=0, updated=0, kept=0, overlap=0, bothOwned=0;
   const byEmail=new Map(), byNameCo=new Map(); for (const c of DB.contacts){ if (c.email) byEmail.set(c.email,c); byNameCo.set(norm(c.name)+'|'+c.companyKey, c); }
@@ -1338,7 +1341,7 @@ function restoreTracker(wb){
       tzOverride:ZONES[r['TZ Override']]?r['TZ Override']:'', startDate:toYmd(r['Cadence Start']), revisitDate:toYmd(r['Revisit Date']),
       discoveryDate:r['Discovery Date']||'', pauseReason:r['Pause Reason']||'', phoneBad:fromYn(r['Phone Bad']), emailBad:fromYn(r['Email Bad']), lastContacted:r['Last Contacted (import)']||'',
       priorStatus:r['Prior Status (import)']||'', notes:r['Notes']||'', touches:(touches[id]||[]).filter(t=>!t.archived), pastTouches:(touches[id]||[]).filter(t=>t.archived).map(({archived,...t})=>({...t, archived:true})), emailBlocked:fromYn(r['Email Blocked']),
-      recalls:safeJson(r['Call-backs (data)'],[]), bounces:safeJson(r['Bounces (data)'],[]), alsoOn:r['Both Reps Had It']||'', referredBy:r['Referred By']||'', liState:r['LinkedIn Status']||'', liSince:r['LinkedIn Since']||'', bestTime:r['Best Time']||'', noLi:r['LinkedIn Status']==='No profile', ...(r['LinkedIn Waiting (data)']?{liWait:(()=>{ try { return JSON.parse(r['LinkedIn Waiting (data)']); } catch(e){ return null; } })()}:{}), unqualReason:r['Unqualified Reason']||'', createdAt:(r['Created At']&&Date.parse(r['Created At']))||Date.now(), ...(r['Moved Steps (data)']?{defer:(()=>{ try { return JSON.parse(r['Moved Steps (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Closed-lost (data)']?{lost:(()=>{ try { return JSON.parse(r['Closed-lost (data)']); } catch(e){ return undefined; } })()}:{}), updatedAt:Date.parse(r['Updated At'])||0};
+      recalls:safeJson(r['Call-backs (data)'],[]), bounces:safeJson(r['Bounces (data)'],[]), alsoOn:r['Both Reps Had It']||'', referredBy:r['Referred By']||'', liState:r['LinkedIn Status']||'', liSince:r['LinkedIn Since']||'', bestTime:r['Best Time']||'', hsExported:r['HubSpot Exported']||'', noLi:r['LinkedIn Status']==='No profile', ...(r['LinkedIn Waiting (data)']?{liWait:(()=>{ try { return JSON.parse(r['LinkedIn Waiting (data)']); } catch(e){ return null; } })()}:{}), unqualReason:r['Unqualified Reason']||'', createdAt:(r['Created At']&&Date.parse(r['Created At']))||Date.now(), ...(r['Moved Steps (data)']?{defer:(()=>{ try { return JSON.parse(r['Moved Steps (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Closed-lost (data)']?{lost:(()=>{ try { return JSON.parse(r['Closed-lost (data)']); } catch(e){ return undefined; } })()}:{}), updatedAt:Date.parse(r['Updated At'])||0};
     if (!DB.companies[inc.companyKey]) DB.companies[inc.companyKey]={key:inc.companyKey,name:r['Company']||inc.companyKey,state:r['State']||'',employees:num(r['Employees']),annualHires:num(r['Est Annual Hires']),higherTouch:false,organized:false,midOverride:null,trigger:'',triggerNote:''};
     if (inc.status==='Attempting' && !inc.startDate) inc.status='New';
     let ex=byId.get(id);
@@ -1352,21 +1355,61 @@ function restoreTracker(wb){
   }
   save(); return {added, updated, kept, overlap, bothOwned};
 }
-function exportHubspot(list){
-  if (typeof XLSX==='undefined') return alert('The spreadsheet library did not load.');
-  const existing=list.filter(c=>c.source==='Closed lost'); list=list.filter(c=>c.source!=='Closed lost');
-  if (existing.length) toast(`${existing.length} closed-lost contact${existing.length===1?' is':'s are'} already in HubSpot, so left out: update their records there.`);
-  if (!list.length && existing.length) return;
-  if (!list.length) return alert('No contacts to export. Select contacts, or book a discovery call first.');
-  const rows = list.map(c=>{ const co=company(c); return {'First Name':c.first,'Last Name':c.last,'Email':c.email,'Phone Number':c.businessPhone,'Mobile Phone Number':c.directPhone,'Job Title':c.title,
-    'Company Name':co.name,'State/Region':co.state,'LinkedIn URL':c.linkedin,'Lead Status':c.status,'Contact Owner':repName(c.owner),
-    /* Playbook custom properties (slide 30). Map each column to its HubSpot property on import; Optimal score is calculated in HubSpot. */
-    'Persona':PERSONAS[persona(c)].label,'Mid-sized':isMid(co)?'true':'false','Higher-touch':co.higherTouch?'true':'false','Organized':co.organized?'true':'false',
-    'Optimal score':optimal(co),'Annual checks (est.)':estHires(co).n||'','Est. annual spend':acctSize(co).spend?Math.round(acctSize(co).spend):'','Account size':acctSize(co).band?BANDS[acctSize(co).band].label:'','Current provider':co.provider||'','Renewal date':co.renewalDate||'','Trigger':co.trigger||'',
-    'Notes':[`Persona: ${PERSONAS[persona(c)].label}`, `Optimal score: ${optimal(co)}`, co.trigger?`Trigger: ${co.trigger} ${co.triggerNote||''}`:'', co.provider?`Current provider: ${co.provider}`:'', co.renewalDate?`Renewal: ${co.renewalDate}`:'', `Touches: ${(c.touches||[]).length}`, c.notes].filter(Boolean).join(' | ')}; });
-  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'HubSpot');
-  XLSX.writeFile(wb, `hubspot-import-${todayStr()}.csv`, {bookType:'csv'});
+/* ---------- HubSpot export ----------
+   Playbook (slide 31): lead status tracks prospecting; the deal is created once pricing is discussed and a follow-up is booked.
+   So this exports contacts and their companies (one file, two objects, associated per row), not deals.
+   HubSpot matches contacts by email (or Record ID) and companies by domain, so existing records are updated, not duplicated. */
+const FREE_MAIL = /^(gmail|googlemail|yahoo|ymail|outlook|hotmail|live|msn|aol|icloud|me|mac|comcast|att|sbcglobal|verizon|protonmail|proton|gmx|mail|zoho)\.[a-z.]+$/i;
+const cleanDomain = d => String(d||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/\/.*$/,'');
+function companyDomain(c){ const co=company(c); if (co.domain) return cleanDomain(co.domain); const d=emailDomain(c.email).toLowerCase(); return d && !FREE_MAIL.test(d) ? d : ''; }
+const hsStatus = st => (DB.settings.hubspot?.status||{})[st] ?? st;
+const hsOwner = id => { const r=repObj(id); return r.hsEmail || r.name || ''; };
+function prospectingSummary(c){
+  const co=company(c), T=allTouches(c).filter(t=>t.outcome!=='Skip'), cnt=ch=>T.filter(t=>t.ch===ch).length;
+  const live=T.find(t=>t.ch==='call' && ['Connected','Meeting booked','Call back requested'].includes(t.outcome));
+  const rep=T.find(t=>['Replied','Meeting booked'].includes(t.outcome) && t.ch!=='call');
+  const a=acctSize(co), L=c.lost;
+  return [
+    `Outbound prospecting (Lead Cadence Planner), owner ${repName(c.owner)}.`,
+    c.startDate ? `${TRACK_LABEL[c.track||trackFor(c)]||'Cadence'} started ${prettyDate(c.startDate)}.` : '',
+    `Touches: ${cnt('call')} call${cnt('call')===1?'':'s'}, ${cnt('email')} email${cnt('email')===1?'':'s'}, ${cnt('linkedin')} LinkedIn.`,
+    live ? `Spoke with them ${prettyDate(live.date)}.` : '', rep ? `Replied ${prettyDate(rep.replyDate||rep.date)} (${CH_LABEL[rep.ch]}).` : '',
+    c.discoveryDate ? `Discovery booked ${prettyDate(c.discoveryDate)}.` : '',
+    `Persona: ${PERSONAS[persona(c)].label}. Optimal score ${optimal(co)}${a.band?`, ${BANDS[a.band].label} (about ${money(a.spend)} a year${a.quoted?', quoted':''})`:''}.`,
+    co.trigger ? `Trigger: ${co.trigger}${co.triggerNote?' ('+co.triggerNote+')':''}.` : '',
+    L ? `Win-back of a deal lost ${L.date?prettyDate(L.date):''}: ${lossSummary(c)}${L.competitor?', went with '+L.competitor:''}${L.stage?', '+LOSS_STAGES[L.stage].toLowerCase():''}.${L.verbatim?' They said: "'+L.verbatim.replace(/\s+/g,' ').slice(0,300)+'"':''}` : '',
+    c.bestTime ? `Best time to reach: ${c.bestTime}.` : '', c.linkedin ? `LinkedIn: ${c.linkedin}` : '',
+    c.notes ? `Notes: ${c.notes.replace(/\s+/g,' ')}` : '',
+  ].filter(Boolean).join(' ');
 }
+function hubspotRows(list){
+  const hs=DB.settings.hubspot||{};
+  return list.map(c=>{ const co=company(c), a=acctSize(co);
+    return {
+      'Contact record ID': c.lost?.hubspotId || '',
+      'Email': c.email||'', 'First name': c.first||'', 'Last name': c.last||'', 'Job title': c.title||'',
+      'Phone number': c.businessPhone||'', 'Mobile phone number': c.directPhone||'',
+      'Contact owner': hsOwner(c.owner), 'Lead status': hsStatus(c.status), ...(hs.lifecycle?{'Lifecycle stage':hs.lifecycle}:{}),
+      'Persona': PERSONAS[persona(c)].label, 'Best time to reach': c.bestTime||'', 'Prospecting summary': prospectingSummary(c),
+      'Company name': co.name||'', 'Company domain name': companyDomain(c), 'Company owner': hsOwner(c.owner),
+      'City': co.city||'', 'State/Region': co.state||'', 'Number of employees': co.employees||'', 'Industry': co.industry||'',
+      'Mid-sized': isMid(co)?'true':'false', 'Higher-touch': co.higherTouch?'true':'false', 'Organized': co.organized?'true':'false',
+      'Annual checks (est.)': a.hires||'', 'Current provider': co.provider||'', 'Contract renewal date': co.renewalDate||'',
+    }; });
+}
+function exportHubspot(list, opts={}){
+  if (typeof XLSX==='undefined') return alert('The spreadsheet library did not load.');
+  if (!list.length) return toast(opts.empty || 'Nothing to export.');
+  const rows=hubspotRows(list), warn=[];
+  const noOwner=list.filter(c=>!repObj(c.owner).hsEmail).length; if (noOwner) warn.push(`${noOwner} without a HubSpot owner email (add it in Settings → HubSpot, or pick the owner in HubSpot)`);
+  const noDom=rows.filter(r=>!r['Company domain name']).length; if (noDom) warn.push(`${noDom} without a company domain (HubSpot can't match those companies, so check for duplicates)`);
+  const noMail=list.filter(c=>!c.email && !c.lost?.hubspotId).length; if (noMail) warn.push(`${noMail} without an email (HubSpot needs an email or Record ID to match a contact)`);
+  const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'HubSpot');
+  XLSX.writeFile(wb, `hubspot-contacts-companies-${fileTag()}-${todayStr()}.csv`, {bookType:'csv'});
+  const t=todayStr(); for (const c of list){ c.hsExported=t; touch(c); } save(); render();
+  toast(`${list.length} contact${list.length===1?'':'s'} exported for HubSpot.${warn.length?' Check: '+warn.join('; ')+'.':''}`);
+}
+const hsPending = () => DB.contacts.filter(c=>mine(c) && c.status==='Discovery booked' && !c.hsExported);
 
 /* ---------------- Run sheet workbook (export + re-import of outcomes) ---------------- */
 const DAY_COLS = ['#','Date','Your time','Block','Task','Channel','Company','Contact','Title','Their zone','Their time','Dial / Send to','Backup (HQ)','Opener / Subject','Voicemail / Email body','Done?','Outcome','Notes','Planned start?','Cadence start','PT_ID','Step ID'];
@@ -1570,6 +1613,7 @@ function renderToday(){
   { const A=m.ahead, n=A.calls.length+A.emails.length+A.lis.length;
     h += `<h2>Tomorrow's tasks <span class="count">${n}</span> <button class="btn sm" data-act="toggleAhead">${UI.ahead?'Hide':'Work ahead'}</button></h2><p class="small muted" style="margin-top:-4px">${prettyDate(A.date)}: ${A.calls.length} calls, ${A.emails.length} emails, ${A.lis.length} LinkedIn. Done early, a touch counts today and the rest of the cadence keeps its dates.${m.calls.length+m.emails.length+m.lis.length?' Finish today\'s list first.':''}</p>`;
     if (UI.ahead) h += n ? [...A.calls.map(it=>taskCall(it,all)), ...A.emails.map(it=>taskEmail(it,all)), ...A.lis.map(it=>taskLi(it,all))].join('') : `<div class="empty">Nothing due ${prettyDate(A.date)}.</div>`; }
+  { const hp=hsPending(); if (hp.length) h += `<div class="card" style="margin:12px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-color:var(--good)"><b>${hp.length} discovery-booked contact${hp.length===1?' isn\'t':'s aren\'t'} in HubSpot yet.</b><span class="small muted">${hp.slice(0,4).map(c=>esc(c.name)).join(', ')}${hp.length>4?'…':''}</span><button class="btn sm primary" data-act="hubspotNew">Export for HubSpot</button></div>`; }
   if (m.connected.length){ h += `<h2>Connected: set the next step <span class="count">${m.connected.length}</span></h2>` + m.connected.map(c=>`<div class="task"><div>${who(c,all)}</div><div class="small muted">${lastTouch(c)?`${esc(lastTouch(c).outcome)} on ${prettyDate(lastTouch(c).date)}`:''}</div><div class="outs">
     ${pendingRecalls(c)[0]?`<span class="tag good">Call-back ${prettyDate(pendingRecalls(c)[0].date)} ${fmtHour(hrs(pendingRecalls(c)[0].time))}</span>`:`<button class="btn sm" data-act="newCallback" data-id="${c.id}">Schedule call-back</button>`}<button class="btn sm good" data-act="setStatus" data-id="${c.id}" data-status="Discovery booked">Discovery booked</button><button class="btn sm" data-act="setStatus" data-id="${c.id}" data-status="Nurture">Nurture</button><button class="btn sm bad" data-act="setStatus" data-id="${c.id}" data-status="Unqualified">Unqualified</button></div></div>`).join(''); }
   if (m.renewals.length){ const all_=all; h += `<h2>Contract renewals in the next 90 days <span class="count">${m.renewals.length}</span></h2><p class="small muted" style="margin-top:-4px">The playbook re-engages 90 days before a known renewal (Sequence F). Nobody at these companies is in a cadence right now. Contacts you've worked before get the re-engage track; new ones get the cold cadence. Max ${DB.settings.maxPerCompany} per company.</p>` +
@@ -1849,7 +1893,7 @@ function renderSettings(){
     : `<p class="small muted">Auto-save to a file needs Chrome or Edge. In this browser, use Download tracker.</p>`}
   </div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Reps</h3><p class="small muted">Names and phone numbers fill [Rep] and [phone] in scripts and email signatures.</p>
-    ${s.reps.map((r,i)=>`<div class="fields" style="margin-bottom:8px"><label>Rep ${i+1} name<input type="text" data-rep="${r.id}" data-rf="name" value="${esc(r.name)}"></label><label>Phone<input type="text" data-rep="${r.id}" data-rf="phone" value="${esc(r.phone)}" placeholder="(801) 555-0100"></label></div>`).join('')}</div>
+    ${s.reps.map((r,i)=>`<div class="fields" style="margin-bottom:8px"><label>Rep ${i+1} name<input type="text" data-rep="${r.id}" data-rf="name" value="${esc(r.name)}"></label><label>HubSpot login email<input type="text" data-rep="${r.id}" data-rf="hsEmail" value="${esc(r.hsEmail||'')}" placeholder="name@peopletrail.com"></label><label>Phone<input type="text" data-rep="${r.id}" data-rf="phone" value="${esc(r.phone)}" placeholder="(801) 555-0100"></label></div>`).join('')}</div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Daily capacity</h3><p class="small muted">The dial target and live-answer rate set how many new contacts a day to start. Email and LinkedIn caps warn you when the cadence would exceed them. Per-hour rates set how many tasks fit in each run-sheet block.${(()=>{ const lr=liveRate(); return lr.n>=30?` Your actual live-answer rate: <b>${(lr.rate*100).toFixed(0)}%</b> on ${lr.n} dials <button class="btn sm" data-act="useRate">Use it</button>`:''; })()}</p>
     <div class="fields"><label>Daily dial target (cadence dials)<input type="number" data-cap="dials" value="${s.caps.dials}"></label><label>Discovery calls booked per month (goal)<input type="number" step="0.5" data-goal="discoveryMonth" value="${s.goals.discoveryMonth}"></label>
 <label>Expected live-answer rate (%)<input type="number" data-set="connectRate" min="1" max="60" value="${s.connectRate}"></label><label>Cadence emails per day<input type="number" data-cap="emails" value="${s.caps.emails}"></label>
@@ -1857,6 +1901,18 @@ function renderSettings(){
     <label>Dials per hour<input type="number" data-rate="call" value="${s.rates.call}"></label><label>Emails per hour<input type="number" data-rate="email" value="${s.rates.email}"></label><label>LinkedIn touches per hour<input type="number" data-rate="linkedin" value="${s.rates.linkedin}"></label></div></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Best windows (prospect's local time)</h3><p class="small muted">Ranges like <code>8-11, 16-17</code> or <code>8:30-10:30, 2pm-4pm</code>. "Best" ranks first; "OK" is the fallback.</p>
     <div class="fields">${winInp('call','Calls: best')}${winInp('callOk','Calls: OK')}${winInp('email','Emails: best')}${winInp('emailOk','Emails: OK')}${winInp('linkedin','LinkedIn: best')}${winInp('linkedinOk','LinkedIn: OK')}</div></div>
+  <div class="card" style="margin-top:12px"><h3 style="margin-top:0">HubSpot</h3>
+    <p class="small muted" style="margin-top:0">Per the playbook, a lead goes into HubSpot when discovery is booked, as a contact with its company and lead status "Discovery booked". The deal is created later, in HubSpot, once pricing is discussed. The export is one file with both objects; HubSpot matches contacts by email (or Record ID for closed-lost deals) and companies by domain, so existing records are updated instead of duplicated.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><button class="btn primary" data-act="hubspotNew">Export new discovery-booked (${hsPending().length})</button><button class="btn" data-act="hubspotBooked">Export all discovery-booked again</button><span class="small muted" style="align-self:center">Any other contacts: tick them in Leads → Export to HubSpot CSV.</span></div>
+    <div class="fields"><label>Lifecycle stage to set (optional; leave blank to leave HubSpot's alone)<input type="text" data-hs="lifecycle" value="${esc(s.hubspot?.lifecycle||'')}" placeholder="e.g. Sales Qualified Lead"></label></div>
+    <details style="margin-top:8px"><summary class="small"><b>Lead status names in HubSpot</b> (change one if your HubSpot uses different wording)</summary><div class="fields" style="margin-top:6px">${STATUSES.map(st=>`<label>${esc(st)}<input type="text" data-hsstatus="${esc(st)}" value="${esc((s.hubspot?.status||{})[st]??st)}"></label>`).join('')}</div></details>
+    <details style="margin-top:8px"><summary class="small"><b>How to import into HubSpot</b></summary><ol class="small" style="margin:6px 0 0;padding-left:18px">
+      <li>Before the first import, make sure HubSpot has these properties (the playbook's slide 30): Persona (contact); Mid-sized, Higher-touch, Organized, Annual checks (est.), Current provider, Contract renewal date (company). Optional contact properties: Best time to reach, Prospecting summary (multi-line text). Optimal score is calculated in HubSpot, so it isn't in the file.</li>
+      <li>Add each rep's HubSpot login email in the Reps card on this tab, so owners are assigned.</li>
+      <li>In HubSpot: Contacts → Import → start an import from a file on your computer → one file → multiple objects → Contacts and Companies. (Menu wording varies a little by HubSpot version.)</li>
+      <li>Map each column: contact columns to Contact properties, company columns (Company name, Company domain name, Company owner, City, State/Region, Number of employees, Industry, the green lights, Annual checks, Current provider, Contract renewal date) to Company properties. Map "Contact record ID" to the contact's Record ID. Choose "Don't import" for any column you haven't built a property for.</li>
+      <li>Let HubSpot create and update records. Empty cells don't clear what's already in HubSpot.</li>
+      <li>Check the import summary for errors, usually an owner email or a dropdown value that doesn't match.</li></ol></details></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Days off</h3><p class="small muted" style="margin-top:0">Holidays and PTO. Cadences, call-back retries and run sheets skip these like weekends. <b>Add and shift</b> also moves every contact's remaining touches from that day on forward one business day, so the spacing stays the same (use it for a day you missed, or before time off). Your days off are yours; they don't change your teammate's plan.</p>
     <div class="filters"><input type="date" id="offDate"><button class="btn sm primary" data-act="dayOff">Add and shift the cadence</button><button class="btn sm" data-act="dayOffOnly">Add without shifting</button></div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${(s.daysOff||[]).length ? s.daysOff.map(d=>`<span class="tag ${d<todayStr()?'':'warn'}">${prettyDate(d)} <button class="btn sm" style="padding:0 5px;margin-left:4px" data-act="delDayOff" data-date="${d}" title="Remove">×</button></span>`).join('') : '<span class="small muted">None yet.</span>'}</div></div>
@@ -1872,7 +1928,7 @@ function renderSettings(){
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Email signature</h3><div class="fields"><label style="grid-column:1/-1">Company address line<input type="text" data-set="address" value="${esc(s.address)}"></label></div>
     <label class="chk" style="margin-top:8px"><input type="checkbox" data-set="optOut" ${s.optOut?'checked':''}> Add "Not the right person? Just let me know and I'll stop." before the signature</label></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Data</h3><p class="small muted">${DB.contacts.length} contacts and ${Object.keys(DB.companies).length} companies stored in this browser. The tracker file is your backup and how you share with your teammate; it also carries your script, cadence and schedule edits.</p>
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" data-act="export">Download tracker</button><button class="btn" data-act="hubspotBooked">Export discovery-booked to HubSpot CSV</button><button class="btn" data-act="demo">Load demo data (fictional)</button><button class="btn bad" data-act="wipe">Erase all data in this browser</button></div></div>`;
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" data-act="export">Download tracker</button><button class="btn" data-act="hubspotNew">Export new discovery-booked to HubSpot (${hsPending().length})</button><button class="btn" data-act="demo">Load demo data (fictional)</button><button class="btn bad" data-act="wipe">Erase all data in this browser</button></div></div>`;
 }
 
 /* ---------- KPIs tab ----------
@@ -2047,7 +2103,7 @@ function renderDrawer(){
       ${c.status==='Attempting'?`<button class="btn sm" data-act="stop" data-id="${c.id}">Stop cadence</button>`:`<button class="btn sm primary" data-act="startOne" data-id="${c.id}">${(c.touches||[]).length?'Restart':'Start'} ${({cold:'cold cadence',reengage:'re-engage track',winback:'win-back track',rfp:'RFP check-in'})[trackFor(c)]} today</button>`}
       ${c.status==='Paused'?`<button class="btn sm" data-act="setStatus" data-id="${c.id}" data-status="New">Resume (back to queue)</button>`:''}
       ${c.source!=='Closed lost'?`<button class="btn sm" data-act="markLost" data-id="${c.id}">Mark as closed-lost</button>`:''}
-      <button class="btn sm bad" data-act="deleteOne" data-id="${c.id}">Delete lead</button>
+      <button class="btn sm bad" data-act="deleteOne" data-id="${c.id}">Delete lead</button>${c.hsExported?`<span class="tag good" title="Exported for HubSpot">HubSpot export ${prettyDate(c.hsExported)}</span>`:''}
       ${(c.touches||[]).length||c.lastReply?`<button class="btn sm" data-act="undo" data-id="${c.id}">${c.lastReply?'Undo last reply / touch':'Undo last touch'}</button>`:''}
     </div>
     ${n?`<div class="card" style="margin-bottom:12px"><b>Next:</b> ${esc(n.step.label)} · ${prettyDate(n.due)}</div>`:''}
@@ -2090,7 +2146,7 @@ function renderDrawer(){
       <label class="chk"><input type="checkbox" data-cof="higherTouch" ${co.higherTouch?'checked':''}> Higher-touch</label>
       <label class="chk"><input type="checkbox" data-cof="organized" ${co.organized?'checked':''}> Organized</label>
       <label>Trigger<select data-cof="trigger">${TRIGGERS.map(t=>`<option value="${t}" ${co.trigger===t?'selected':''}>${t||'None'}</option>`).join('')}</select></label>
-      ${cinp('triggerNote','Trigger wording (fills [Trigger])')}${cinp('provider','Current provider')}${cinp('renewalDate','Contract renewal','date')}
+      ${cinp('triggerNote','Trigger wording (fills [Trigger])')}${cinp('provider','Current provider')}${cinp('renewalDate','Contract renewal','date')}${cinp('domain','Website / domain (for HubSpot)')}
     </div>
     <p class="small muted">Higher-touch: values an account manager and proactive service. Organized: someone owns screening compliance and the process is written down. Changes apply to every contact at ${esc(co.name)}.</p>
     <h3>Touch history (${allTouches(c).length})</h3><div class="hist">${allTouches(c).length?allTouches(c).slice().reverse().map(t=>`<div>${prettyDate(t.date)} · ${esc(CH_LABEL[t.ch]||t.ch)} · ${esc(t.label)} → <b>${esc(t.outcome)}</b>${t.replyDate&&t.replyDate!==t.date?` <span class="small muted">(reply logged ${prettyDate(t.replyDate)})</span>`:''}${t.autoReply?` <span class="tag warn">${esc(t.autoReply)}</span>`:''}${t.ch==='email'&&t.outcome==='Sent'&&!t.archived?` <button class="btn sm" data-act="replyOpen" data-id="${c.id}">Replied?</button>`:''}${t.archived?' <span class="small muted">(earlier cadence)</span>':''}${t.ch==='email'&&t.outcome==='Sent'&&!t.archived?` <button class="btn sm" data-act="bounceOpen" data-id="${c.id}" data-step="${esc(t.step)}">Bounced?</button>`:''}</div>`).join(''):'<div class="muted">No touches yet.</div>'}</div>
@@ -2260,8 +2316,9 @@ document.addEventListener('click', e=>{
     case 'selAll': { const ids=filteredContacts().slice(0,600).map(x=>x.id); if (el.checked) ids.forEach(i=>UI.selected.add(i)); else ids.forEach(i=>UI.selected.delete(i)); render(); } break;
     case 'clearSel': UI.selected.clear(); render(); break;
     case 'bulkStart': { let k=0; for (const x of DB.contacts) if (UI.selected.has(x.id) && !['Attempting','Do not contact','Discovery booked'].includes(x.status)){ startCadence(x); k++; } UI.selected.clear(); save(); render(); toast(`Started ${k}`); } break;
-    case 'bulkHubspot': exportHubspot(DB.contacts.filter(x=>UI.selected.has(x.id))); break;
-    case 'hubspotBooked': exportHubspot(DB.contacts.filter(x=>x.status==='Discovery booked')); break;
+    case 'bulkHubspot': exportHubspot(DB.contacts.filter(x=>UI.selected.has(x.id)), {empty:'Select contacts first.'}); break;
+    case 'hubspotBooked': exportHubspot(DB.contacts.filter(x=>mine(x) && x.status==='Discovery booked'), {empty:'No discovery-booked contacts yet.'}); break;
+    case 'hubspotNew': exportHubspot(hsPending(), {empty:'Every discovery-booked contact has already been exported.'}); break;
     case 'bulkDelete': if (confirm(`Delete ${UI.selected.size} leads? You can undo right after.`)){ UI.trash={items:DB.contacts.filter(x=>UI.selected.has(x.id)), at:Date.now()}; DB.contacts=DB.contacts.filter(x=>!UI.selected.has(x.id)); UI.selected.clear(); save(); render(); } break;
     case 'parsePaste': { const t=$('#pasteIn').value; if (!t.trim()) return;
       const first=t.split(/\r?\n/).find(l=>l.trim())||'';
@@ -2351,6 +2408,8 @@ document.addEventListener('change', async e=>{
   if (d.lostreason){ const c=DB.contacts.find(x=>x.id===UI.drawer); if (c){ const L=c.lost=c.lost||{}; let rs=lossReasons(L).filter(k=>k!=='other' || el.checked && d.lostreason==='other');
       rs = el.checked ? [...rs.filter(k=>k!==d.lostreason), d.lostreason] : rs.filter(k=>k!==d.lostreason); if (!rs.length) rs=['other']; L.reasons=rs; L.cat=rs[0]; if (c.status==='Nurture') c.revisitDate=lostFollowUp(c).date; touch(c); save(); render(); } return; }
   if (d.wb){ DB.settings.winback[d.wb]= ['whatsNew','industryProof'].includes(d.wb) ? el.value : Math.max(0,+el.value||0); save(); render(); return; }
+  if (d.hs){ (DB.settings.hubspot ||= {status:{}})[d.hs]=el.value.trim(); save(); return; }
+  if (d.hsstatus){ ((DB.settings.hubspot ||= {status:{}}).status ||= {})[d.hsstatus]=el.value.trim()||d.hsstatus; save(); return; }
   if (d.goal){ DB.settings.goals[d.goal]=Math.max(0,+el.value||0); save(); return; }
   if (d.rate){ DB.settings.rates[d.rate]=Math.max(1,+el.value||1); save(); return; }
   if (d.mid){ DB.settings.mid[d.mid]=Math.max(0,+el.value||0); save(); return; }
