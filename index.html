@@ -489,8 +489,19 @@ const LIVE = new Set(['Connected','Meeting booked','Not the right person','Do no
 const RECALL_OUTCOMES = ['Connected','Meeting booked','No answer','Left voicemail','Reschedule','Cancel'];
 const STATUSES = ['New','Attempting','Connected','Discovery booked','Nurture','Paused','Unqualified','Do not contact'];
 /* Where a lead came from. Everything except Old lead and Closed lost runs the cold cadence. */
-const SOURCES = ['ZoomInfo','Apollo','Sales Navigator','Event','Other list','Referral','Inbound','Manual add','Old lead','Closed lost'];
-const NEW_SOURCES = ['Referral','Inbound','Manual add','Event','Other list','Apollo','Sales Navigator','ZoomInfo','Old lead'];
+const SOURCES = ['ZoomInfo','HubSpot','Own prospecting','Apollo','Sales Navigator','Event','Other list','Referral','Inbound','Manual add','Old lead','Closed lost'];
+const NEW_SOURCES = ['Referral','Inbound','Own prospecting','Manual add','Event','Other list','Apollo','Sales Navigator','ZoomInfo','Old lead'];
+/* What's being imported, picked before uploading (or recognized from the columns). */
+const IMPORT_TYPES = {
+  zoominfo:{label:'ZoomInfo export', source:'ZoomInfo', note:'Contacts with name, title, phones, email and company. Maps automatically.'},
+  hubspot:{label:'HubSpot deals', source:'auto', note:'Deal Name, Deal Stage, Close Date, Deal owner, Amount, Industry, Last Activity Date, State/Region. Closed lost → win-back; closed won → skipped (customers); open deals → skipped unless you tick them in. There\'s no contact on a deal, so each company gets a "Contact needed" lead to research.'},
+  own:{label:'My own leads', source:'Own prospecting', note:'Your own farming: as little as a company, or a name and company, plus a phone or email if you have them. Leads with no contact name become "Contact needed" to research.'},
+  other:{label:'Other list', source:'Other list', note:'Apollo, Sales Navigator, an event list or anything else. Pick the source below the preview.'}};
+const NO_CONTACT = 'Contact needed';
+const needsContact = c => c.name===NO_CONTACT;
+/* "Acme Health - background checks" → "Acme Health" */
+const companyFromDeal = d => String(d||'').split(/\s+[-–—|:]\s+|\s*\|\s*/)[0].replace(/\b(background (checks?|screening)|screening|new deal|renewal|deal)\b.*$/i,'').trim() || String(d||'').trim();
+function stageKind(s){ const v=String(s||'').toLowerCase(); if (!v) return ''; if (/closed\s*won|\bwon\b|customer/.test(v)) return 'won'; if (/closed\s*lost|\blost\b|dead|disqualif/.test(v)) return 'lost'; return 'open'; }
 
 /* ---------------- State ---------------- */
 const DEFAULT_SETTINGS = {
@@ -1140,13 +1151,13 @@ function queueModel(){
   for (const c of DB.contacts) if (c.status==='Attempting') active[c.companyKey]=(active[c.companyKey]||0)+1;
   const mineNew = DB.contacts.filter(c=>(cur==='all'||c.owner===cur) && (c.status==='New' || (c.status==='Nurture' && !c.cycle && c.revisitDate && c.revisitDate<=t)));
   const waiting = mineNew.filter(c=>c.source==='Closed lost' || !hsHeld(c)).sort((a,b)=>priority(b)-priority(a)), inHs=mineNew.length-waiting.length;
-  const ready = waiting.filter(c=>(active[c.companyKey]||0) < max);
+  const ready = waiting.filter(c=>!needsContact(c) && (active[c.companyKey]||0) < max);
   const mix={}; for (const c of waiting){ const k=queueKind(c); mix[k]=(mix[k]||0)+1; }
   return {active, waiting, readyCount:ready.length, max, inHs, mix};
 }
 function startTop(n){
   const {active, waiting, max} = queueModel(); let k=0; const by={};
-  for (const c of waiting){ if (k>=n) break; if ((active[c.companyKey]||0) >= max) continue; const kind=queueKind(c); startCadence(c, undefined, queueTrack(c)); by[kind]=(by[kind]||0)+1; active[c.companyKey]=(active[c.companyKey]||0)+1; k++; }
+  for (const c of waiting){ if (k>=n) break; if (needsContact(c) || (active[c.companyKey]||0) >= max) continue; const kind=queueKind(c); startCadence(c, undefined, queueTrack(c)); by[kind]=(by[kind]||0)+1; active[c.companyKey]=(active[c.companyKey]||0)+1; k++; }
   save(); render(); toast(`Started ${k} contact${k===1?'':'s'} on day 1${k?`: ${Object.entries(by).map(([x,v])=>`${v} ${x}`).join(', ')}`:''}`);
 }
 const STUB = track => ({track, touches:[], email:'x@x', companyKey:''});  /* a contact with nothing logged, for planning */
@@ -1213,7 +1224,7 @@ function bizDays(n){ const out=[]; let d=nextBiz(todayStr()); while(out.length<n
 function plannedStarts(days, perDay, by){
   const virt=new Map(), cur=DB.settings.currentRep;
   if (cur==='all' || !(perDay>0 || by)) return virt;
-  const {active, waiting, max} = queueModel(); const act={...active}, pool=waiting.slice(), t=todayStr();
+  const {active, waiting, max} = queueModel(); const act={...active}, pool=waiting.filter(c=>!needsContact(c)), t=todayStr();
   const startedToday = DB.contacts.filter(c=>mine(c) && c.startDate===t && c.status!=='New' && c.track!=='nurture').length;
   for (const d of days){
     const n = by && by.has(d) ? by.get(d) : perDay;
@@ -1306,10 +1317,10 @@ const FIELD_DEFS = [
   ['last','Last name',['last name','lastname','last','surname']],
   ['title','Title',['title','job title','position']],
   ['email','Email',['email','email address','business email','work email','contact email']],
-  ['directPhone','Direct / mobile phone',['direct phone','direct phone number','direct dial','mobile phone','mobile','cell','cell phone','mobile phone number']],
+  ['directPhone','Direct / mobile phone',['direct phone','direct phone number','direct dial','mobile phone','mobile','cell','cell phone','mobile phone number','phone','phone number','telephone']],
   ['businessPhone','Business / HQ phone',['business phone','company phone','hq phone','company hq phone','phone','phone number','main phone','company phone number']],
   ['linkedin','LinkedIn',['linkedin','linkedin url','linkedin contact profile url','person linkedin url','linkedin profile']],
-  ['company','Company',['company','company name','account','account name','organization']],
+  ['company','Company',['company','company name','account','account name','organization','business name','employer','associated company']],
   ['state','State',['state','company state','hq state','company hq state','state/region','region']],
   ['city','City',['city','company city','hq city','company hq city']],
   ['employees','Employees',['employees','employee count','number of employees','company employee count','headcount']],
@@ -1318,7 +1329,7 @@ const FIELD_DEFS = [
   ['website','Website / domain',['website','company website','website url','company domain name','company domain','domain']],
   ['lastContacted','Last contacted (old leads)',['last contacted','last activity','last activity date','last contact date','last touch','last contact']],
   ['priorStatus','Prior status / outcome',['status','lead status','prior status','last outcome','disposition']],
-  ['owner','Owner / rep',['owner','rep','assigned to','contact owner','sales rep']],
+  ['owner','Owner / rep',['owner','rep','assigned to','contact owner','sales rep','deal owner','hubspot owner','company owner']],
   ['notes','Notes',['notes','note','comments']],
   ['lossReason','Closed lost reason',['closed lost reason','lost reason','loss reason','reason lost','deal lost reason']],
   ['lossDate','Close / lost date',['close date','closed date','lost date','date lost','closed lost date']],
@@ -1328,7 +1339,9 @@ const FIELD_DEFS = [
   ['renewal','Contract renewal date',['renewal date','contract renewal date','contract renewal','contract end date']],
   ['bestTime','Best time to reach',['best time to call','best time to contact','best time to reach','best time','preferred contact time']],
   ['hubspotId','HubSpot record ID',['record id','contact id','hubspot id','deal id','record id - contact']],
-  ['dealName','Deal name',['deal name']],
+  ['dealName','Deal name',['deal name','deal']],
+  ['dealStage','Deal stage (HubSpot)',['deal stage','dealstage','pipeline stage']],
+  ['dealType','Deal type (HubSpot)',['deal type']],
   ['leadType','Lead type / source',['lead type','lead source','source','list source','lead category','list name','lead list','lead origin']],
 ];
 /* Reads a lead-type cell ("Apollo export", "Trade show", "Website form"...) as one of SOURCES; '' if it can't tell. */
@@ -1356,7 +1369,7 @@ function num(v){
   const nums=[...s.matchAll(/(\d[\d,]*\.?\d*)\s*([km])?/g)].map(m=>{ let n=parseFloat(m[1].replace(/,/g,'')); if (m[2]==='k') n*=1e3; if (m[2]==='m') n*=1e6; return n; }).filter(n=>!isNaN(n));
   if (!nums.length) return ''; return Math.round(nums.length>1 ? (nums[0]+nums[1])/2 : nums[0]);
 }
-function rowsToRecords(rows, map){
+function rowsToRecords(rows, map, type){
   const g = (r,f) => map[f] ? blank(r[map[f]]) : '';
   return rows.map(r=>{
     let name=g(r,'name'), first=g(r,'first'), last=g(r,'last');
@@ -1368,7 +1381,17 @@ function rowsToRecords(rows, map){
       employees:num(g(r,'employees')), annualHires:num(g(r,'annualHires')), industry:g(r,'industry'),
       lastContacted:g(r,'lastContacted'), priorStatus:g(r,'priorStatus'), owner:g(r,'owner'), notes:g(r,'notes'),
       website:g(r,'website'), lossReason:g(r,'lossReason'), lossDate:toYmd(g(r,'lossDate')), recycle:toYmd(g(r,'recycle')), quote:num(g(r,'quote')), competitor:g(r,'competitor'), renewal:toYmd(g(r,'renewal')),
-      bestTime:g(r,'bestTime'), hubspotId:g(r,'hubspotId'), dealName:g(r,'dealName'), leadType:g(r,'leadType')};
+      bestTime:g(r,'bestTime'), hubspotId:g(r,'hubspotId'), dealName:g(r,'dealName'), leadType:g(r,'leadType'), dealStage:g(r,'dealStage'), dealType:g(r,'dealType')};
+  }).map(x=>{
+    /* HubSpot deals and your own lists may have no contact: take the company from the deal name or the email's domain,
+       and hold a "Contact needed" lead for the company until you find someone. */
+    if (!x.company && x.dealName) x.company=companyFromDeal(x.dealName);
+    if (!x.company && x.email){ const d=emailDomain(x.email); if (d && !/gmail|yahoo|hotmail|outlook|icloud|aol/i.test(d)) x.company=d.split('.')[0].replace(/[-_]/g,' ').replace(/\b\w/g,m=>m.toUpperCase()); }
+    if (!x.name && x.company && (type==='hubspot' || type==='own' || x.dealName)){ x.name=NO_CONTACT; x.first=''; x.last=''; }
+    x.stage=stageKind(x.dealStage);
+    if (x.dealStage || x.dealType) x.notes=[x.notes, x.dealName?`HubSpot deal: ${x.dealName}`:'', x.dealStage?`stage ${x.dealStage}`:'', x.dealType||'', x.quote?`$${Number(x.quote).toLocaleString()}`:''].filter(Boolean).join(' · ');
+    if (x.stage && x.stage!=='lost'){ x.lossDate=''; }   /* a Close Date on an open or won deal isn't a loss date */
+    return x;
   }).filter(x=>x.name && x.company);
 }
 function parseReportPaste(text){
@@ -1408,8 +1431,10 @@ const typesTxt = t => Object.entries(t||{}).sort((a,b)=>b[1]-a[1]).map(([k,v])=>
 function commitRecords(recs, ownerId, sourceMode, updateExisting){
   const byEmail=new Map(), byName=new Map();
   for (const c of DB.contacts){ if (c.email) byEmail.set(c.email, c); byName.set(norm(c.name)+'|'+c.companyKey, c); }
-  let added=0, updated=0; const byType={};
+  let added=0, updated=0, skipped=0; const byType={}, skip={won:0, open:0};
   for (const r of recs){
+    if (r.stage==='won'){ skip.won++; skipped++; continue; }
+    if (r.stage==='open' && !(UI.draft && UI.draft.openDeals)){ skip.open++; skipped++; continue; }
     const key=coKey(r.company); if (!key) continue;
     const co = DB.companies[key] || (DB.companies[key] = {key, name:r.company, state:'', city:'', employees:'', annualHires:'', industry:'', higherTouch:false, organized:false, midOverride:null, trigger:'', triggerNote:'', triggerDate:'', provider:'', renewalDate:''});
     for (const f of ['state','city','employees','annualHires','industry']) if (!co[f] && r[f]) co[f]=r[f];
@@ -1417,8 +1442,8 @@ function commitRecords(recs, ownerId, sourceMode, updateExisting){
     if (isValidYmd(r.renewal) && !co.renewalDate) co.renewalDate=r.renewal;
     if (r.website && !co.domain) co.domain=cleanDomain(r.website);
     /* Lead type: closed-lost (loss details, or picked) wins; then the file's lead-type column, row by row; then the Source picked on Import. */
-    const fileType=sourceFrom(r.leadType), lostRow=!!(r.lossReason||r.lossDate||r.recycle);
-    const src = sourceMode==='Closed lost' || lostRow ? 'Closed lost' : fileType ? fileType : sourceMode==='auto' ? ((r.lastContacted||r.priorStatus) ? 'Old lead' : 'ZoomInfo') : sourceMode;
+    const fileType=sourceFrom(r.leadType), lostRow = r.stage ? r.stage==='lost' : !!(r.lossReason||r.lossDate||r.recycle);
+    const src = sourceMode==='Closed lost' || lostRow ? 'Closed lost' : r.stage==='open' ? 'Old lead' : fileType ? fileType : sourceMode==='auto' ? ((r.lastContacted||r.priorStatus) ? 'Old lead' : 'ZoomInfo') : sourceMode;
     const det=detectLoss(r.lossReason);
     const lostInfo = {reason:r.lossReason||'', reasons:det.reasons, date:r.lossDate||'', recycle:r.recycle||'', amount:r.quote||'', competitor:r.competitor||det.competitor||'', hubspotId:r.hubspotId||'', dealName:r.dealName||''};
     if (ex){ for (const f of ['first','last','title','email','directPhone','businessPhone','linkedin','lastContacted','priorStatus','bestTime']) if (r[f] && (updateExisting || !ex[f])) ex[f]=r[f]; if (r.liKnown) ex.liKnown=true;
@@ -1432,7 +1457,7 @@ function commitRecords(recs, ownerId, sourceMode, updateExisting){
     if (src==='Closed lost') applyLost(c, lostInfo);
     DB.contacts.push(c); if (c.email) byEmail.set(c.email,c); byName.set(norm(c.name)+'|'+key, c); added++; byType[src]=(byType[src]||0)+1;
   }
-  save(); return {added, updated, byType};
+  save(); return {added, updated, byType, skipped, skip};
 }
 
 /* ---------------- Tracker workbook ---------------- */
@@ -1946,7 +1971,7 @@ function checkAlerts(){
 setInterval(checkAlerts, 30000);
 
 /* Contacts waiting to start that are missing a phone or an email */
-function researchList(){ return queueModel().waiting.filter(c=>mine(c) && (!(c.directPhone||c.businessPhone) || !c.email)).sort((a,b)=>priority(b)-priority(a)); }
+function researchList(){ return queueModel().waiting.filter(c=>mine(c) && (needsContact(c) || !(c.directPhone||c.businessPhone) || !c.email)).sort((a,b)=>priority(b)-priority(a)); }
 function who(c, all){
   const co=company(c), o=optimal(co);
   return `<span class="name" data-act="open" data-id="${c.id}">${esc(c.name)}</span> <span class="opt opt${o}" title="Optimal score">${o}</span> ${bandTag(co)}${c.source==='Old lead'?' <span class="tag warn">Old lead</span>':''}${c.source && !['ZoomInfo','Old lead','Closed lost','Referral'].includes(c.source)?` <span class="tag ${c.source==='Inbound'?'good':''}">${esc(c.source)}</span>`:''}${c.source==='Referral'&&!c.referredBy?' <span class="tag good">Referral</span>':''}${c.track==='nurture'&&c.cycle&&c.status==='Attempting'?` <span class="tag" title="Nurture re-contact after the sprint">Nurture ${c.cycle.round} of ${c.cycle.of||DB.settings.sprint?.rounds||3}</span>`:''}${c.alsoOn?' <span class="tag bad" title="'+esc(c.alsoOn)+'">Both had it</span>':''}${c.referredBy?` <span class="tag good">Referred by ${esc(c.referredBy)}</span>`:''}${(()=>{ const hm=hsMatch(c); return hm?` <span class="tag bad" title="Matched on ${hm.by}">In HubSpot: ${esc(hm.label)}</span>`:''; })()}${all?` <span class="tag">${esc(repName(c.owner))}</span>`:''}<br>
@@ -2155,23 +2180,35 @@ function renderImport(){
     <div class="filters"><input type="file" id="hsCheckIn" accept=".csv,.xlsx,.xls">${L?`<button class="btn sm" data-act="hsClear">Remove list</button>`:''}</div>
     ${L?`<p class="small" style="margin:6px 0 0">Loaded ${prettyDate(L.loadedAt)}${L.file?` from ${esc(L.file)}`:''}: ${L.counts.emails.toLocaleString()} emails, ${L.counts.domains.toLocaleString()} company domains, ${L.counts.names.toLocaleString()} company names. <b>${mine_.length}</b> of your leads match${mine_.length?` <button class="btn sm" data-act="leadViewGo" data-v="inHs">See them</button>`:''}.</p>`:''}</div>`;
 }
+function makeDraft(label, headers, rows){
+  const picked=UI.impType||DB.settings.impType||'zoominfo', H=headers.map(norm);
+  const looksHs = H.includes(norm('deal name')) || H.includes(norm('deal stage'));
+  const type = looksHs ? 'hubspot' : picked;
+  return {label, headers, rows, map:autoMap(headers), type, picked, detected: type!==picked, openDeals:false};
+}
 function renderImportBody(){
   const d=UI.draft, s=DB.settings;
-  let h = `<div class="card"><h3 style="margin-top:0">Upload a lead list, tracker or run sheet</h3>
+  const it=UI.impType||DB.settings.impType||'zoominfo';
+  let h = `<div class="card"><h3 style="margin-top:0">1 · What are you importing?</h3><div class="seg" style="flex-wrap:wrap">${Object.entries(IMPORT_TYPES).map(([k,v])=>`<button class="btn ${it===k?'primary':''}" data-act="impType" data-t="${k}">${v.label}</button>`).join('')}</div>
+    <p class="small muted" style="margin:6px 0 0">${esc(IMPORT_TYPES[it].note)} Trackers and run sheets are recognized on their own, whatever is picked.</p></div>
+  <div class="card" style="margin-top:12px"><h3 style="margin-top:0">2 · Upload a lead list, tracker or run sheet</h3>
     <p class="small muted">CSV, XLSX or XLS. A ZoomInfo export maps automatically; you confirm the columns before anything is saved. A tracker file from this app (yours or your teammate's) restores directly with all cadence history. A run-sheet workbook you filled in applies every logged outcome. Files are read inside your browser and never uploaded.</p>
     <div class="drop"><input type="file" id="fileIn" accept=".csv,.xlsx,.xls,.txt"></div>
     <h3>Or paste</h3><p class="small muted">Paste the lead report text (company line with "• employees • est. annual hires" followed by the contact table), or rows copied from Excel with a header row.</p>
     <textarea id="pasteIn" placeholder="AAA Example Co   (Alabama  •  8,700 employees  •  ~5,200 est. annual hires)&#10;#&#10;Contact&#10;Title&#10;…"></textarea>
     <div style="margin-top:8px"><button class="btn" data-act="parsePaste">Read pasted text</button></div></div>`;
-  { const U=uploadsMine(), n=UI.showUploads?U.length:8;
-    h += `<div class="card" style="margin-top:12px"><h3 style="margin-top:0">Upload log <span class="count">${U.length}</span></h3><p class="small muted" style="margin-top:0">Every lead list or pasted report you import, with how many were new and their lead types. Trackers and run sheets aren't listed. Travels in your tracker, so your teammate's uploads show here after a swap. Follows Working as.</p>
-    ${U.length?`<div class="tablewrap"><table><thead><tr><th>Date</th><th>File</th><th>Owner</th><th>Added</th><th>Updated</th><th>Lead types (new leads)</th><th>Source picked</th></tr></thead><tbody>${U.slice(0,n).map(u=>`<tr><td>${prettyDate(u.date)}<br><span class="small muted">${new Date(u.at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}${u.by&&u.by!==u.owner?` · by ${esc(repName(u.by))}`:''}</span></td><td>${esc(u.file||'')}</td><td>${esc(repName(u.owner))}</td><td><b>${u.added}</b></td><td>${u.updated}</td><td class="small">${esc(typesTxt(u.types))||'—'}</td><td class="small">${u.choice==='auto'?'Auto':esc(u.choice||'')}</td></tr>`).join('')}</tbody></table></div>${U.length>8?`<button class="btn sm" data-act="toggleUploads">${UI.showUploads?'Show fewer':`Show all ${U.length}`}</button>`:''}`:'<p class="small muted">No uploads logged yet. Imports from now on are listed here; leads already in the app keep the date they were added (see the Added column in Leads).</p>'}</div>`; }
   if (d){
-    const recs = d.records || (d.map ? rowsToRecords(d.rows, d.map) : []);
+    const all = d.records || (d.map ? rowsToRecords(d.rows, d.map, d.type) : []), dropped=(d.rows||[]).length - (d.records?0:all.length);
+    const recs = all.filter(r=>!(r.stage==='won' || (r.stage==='open' && !d.openDeals)));
     const ownerSel = `<select id="impOwner">${s.reps.map(r=>`<option value="${r.id}" ${(s.currentRep===r.id)?'selected':''}>${esc(r.name)}</option>`).join('')}</select>`;
-    h += `<div class="card" style="margin-top:12px"><h3 style="margin-top:0">Review: ${esc(d.label)}</h3>`;
+    h += `<div class="card" style="margin-top:12px"><h3 style="margin-top:0">3 · Review: ${esc(d.label)} <span class="tag">${esc(IMPORT_TYPES[d.type||'zoominfo']?.label||'')}</span></h3>`;
+    if (d.detected) h += `<div class="banner" style="margin-bottom:8px">These columns look like a <b>${esc(IMPORT_TYPES[d.type].label)}</b> file, so it's being read that way. <button class="btn sm" data-act="impType" data-t="${d.picked||'zoominfo'}">Read it as ${esc(IMPORT_TYPES[d.picked||'zoominfo'].label)} instead</button></div>`;
+    if (all.some(r=>r.stage)){ const k={lost:0, won:0, open:0}; for (const r of all) if (r.stage) k[r.stage]++;
+      h += `<div class="note" style="margin-bottom:8px"><b>Deal stages:</b> ${k.lost} closed lost → win-back track (follow-up date from the close date, or the loss reason) · ${k.won} closed won → skipped (customers) · ${k.open} open → ${d.openDeals?'imported as old leads (re-engage track)':'skipped'} <label class="chk small" style="display:inline-flex;margin-left:8px"><input type="checkbox" data-act2="openDeals" ${d.openDeals?'checked':''}> Import open deals as old leads</label>${k.open?'<br><span class="small muted">Open deals usually belong to whoever owns them in HubSpot. Only tick this for stale deals you agreed to work.</span>':''}</div>`; }
+    { const nc=recs.filter(r=>r.name===NO_CONTACT).length; if (nc) h += `<p class="small"><span class="tag warn">${nc} without a contact</span> They're added as "${NO_CONTACT}" at each company and held out of the start queue until you add a name and phone (open the lead and edit it, or + Add lead). They're listed under Research on Today.</p>`; }
+    if (dropped>0) h += `<p class="small"><span class="tag bad">${dropped} row${dropped===1?'':'s'} can't be read</span> ${d.type==='zoominfo'?'ZoomInfo rows need a name and a company. Wrong file type? Pick HubSpot deals or My own leads above.':'They have no company (or deal name) to file them under. Check the Company column below.'}</p>`;
     if (d.map){
-      h += `<p class="small muted">Check the column matches. Contacts need at least a name and a company.</p><div class="fields">` +
+      h += `<p class="small muted">Check the column matches. ${d.type==='hubspot'?'A deal needs a deal name or company.':d.type==='own'?'A lead needs a company (or a work email to take it from).':'Contacts need at least a name and a company.'}</p><div class="fields">` +
         FIELD_DEFS.map(([f,l])=>`<label>${l}<select data-map="${f}"><option value="">(not in file)</option>${d.headers.map(x=>`<option ${d.map[f]===x?'selected':''}>${esc(x)}</option>`).join('')}</select></label>`).join('') + `</div>`;
     }
     const cos=new Set(recs.map(r=>coKey(r.company)));
@@ -2180,10 +2217,13 @@ function renderImportBody(){
       h += `<p class="small"><b>Lead type from the file</b> (column "${esc(d.map?.leadType||'')}"): ${Object.entries(tally).map(([k,v])=>`${v} ${esc(k)}`).join(' · ')||'none recognized'}${unk?` · <span class="tag warn">${unk} not recognized</span> <span class="muted">(${[...unkEx].slice(0,4).map(esc).join(', ')}) use the Source picked below</span>`:''}${recs.length>withType.length?` · ${recs.length-withType.length} blank, using the Source picked below`:''}. A loss reason or close date still marks a row closed lost.</p>`; } }
     if (recs.length) h += `<div class="tablewrap"><table><thead><tr><th>Name</th><th>Title</th><th>Company</th><th>Email</th><th>Direct</th><th>Business</th><th>Zone</th>${recs.some(r=>r.leadType)?'<th>Lead type</th>':''}</tr></thead><tbody>${recs.slice(0,8).map(r=>{ const a=areaCode(r.directPhone)||areaCode(r.businessPhone); const z=AREA[a]||STATE_ZONE[normState(r.state)]||''; return `<tr><td>${esc(r.name)}</td><td>${esc(r.title)}</td><td>${esc(r.company)}</td><td>${esc(r.email)}</td><td>${esc(r.directPhone)}</td><td>${esc(r.businessPhone)}</td><td>${zoneBadge(z)}</td>${recs.some(x=>x.leadType)?`<td>${(r.lossReason||r.lossDate||r.recycle)?'Closed lost':esc(sourceFrom(r.leadType)||(r.leadType?r.leadType+' (?)':''))}${!(r.lossReason||r.lossDate||r.recycle)&&!sourceFrom(r.leadType)?' <span class="small muted">→ Source below</span>':''}</td>`:''}</tr>`; }).join('')}</tbody></table></div>`;
     h += `<div class="filters" style="margin-top:12px"><label class="small">Assign to ${ownerSel}</label>
-      <label class="small">${recs.some(r=>r.leadType)?'Source for rows without a lead type':'Source'} <select id="impSource"><option value="auto">Auto (closed lost if it has a loss reason or close date; old lead if it has a last-contacted date or status)</option>${SOURCES.filter(x=>x!=='Closed lost').map(x=>`<option ${d.source===x?'selected':''}>${x}</option>`).join('')}<option value="Closed lost" ${d.source==='Closed lost'?'selected':''}>Closed lost (HubSpot export)</option></select></label>
+      <label class="small">${recs.some(r=>r.leadType)?'Source for rows without a lead type':'Source'} <select id="impSource"><option value="auto" ${(d.source||IMPORT_TYPES[d.type||'zoominfo'].source)==='auto'?'selected':''}>Auto (closed lost if it has a loss reason or close date; old lead if it has a last-contacted date or status)</option>${SOURCES.filter(x=>x!=='Closed lost').map(x=>`<option ${(d.source||IMPORT_TYPES[d.type||'zoominfo'].source)===x?'selected':''}>${x}</option>`).join('')}<option value="Closed lost" ${d.source==='Closed lost'?'selected':''}>Closed lost (HubSpot export)</option></select></label>
       <label class="chk small" title="Off: a lead already in the planner only gets blanks filled in. On: values in this file replace what's there (empty cells never erase anything)."><input type="checkbox" id="impUpdate"> Update existing leads with this file's values</label>
-      <button class="btn primary" data-act="commit" ${recs.length?'':'disabled'}>Import ${recs.length} contacts</button><button class="btn" data-act="cancelDraft">Cancel</button></div></div>`;
+      <button class="btn primary" data-act="commit" ${recs.length?'':'disabled'}>Import ${recs.length} ${d.type==='hubspot'?'rows':'contacts'}</button><button class="btn" data-act="cancelDraft">Cancel</button></div></div>`;
   }
+  { const U=uploadsMine(), n=UI.showUploads?U.length:8;
+    h += `<div class="card" style="margin-top:12px"><h3 style="margin-top:0">Upload log <span class="count">${U.length}</span></h3><p class="small muted" style="margin-top:0">Every lead list or pasted report you import, with how many were new and their lead types. Trackers and run sheets aren't listed. Travels in your tracker, so your teammate's uploads show here after a swap. Follows Working as.</p>
+    ${U.length?`<div class="tablewrap"><table><thead><tr><th>Date</th><th>File</th><th>Owner</th><th>Added</th><th>Updated</th><th>Lead types (new leads)</th><th>Source picked</th></tr></thead><tbody>${U.slice(0,n).map(u=>`<tr><td>${prettyDate(u.date)}<br><span class="small muted">${new Date(u.at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}${u.by&&u.by!==u.owner?` · by ${esc(repName(u.by))}`:''}</span></td><td>${esc(u.file||'')}</td><td>${esc(repName(u.owner))}</td><td><b>${u.added}</b></td><td>${u.updated}</td><td class="small">${esc(typesTxt(u.types))||'—'}</td><td class="small">${u.choice==='auto'?'Auto':esc(u.choice||'')}</td></tr>`).join('')}</tbody></table></div>${U.length>8?`<button class="btn sm" data-act="toggleUploads">${UI.showUploads?'Show fewer':`Show all ${U.length}`}</button>`:''}`:'<p class="small muted">No uploads logged yet. Imports from now on are listed here; leads already in the app keep the date they were added (see the Added column in Leads).</p>'}</div>`; }
   return h;
 }
 
@@ -2707,6 +2747,7 @@ document.addEventListener('click', e=>{
       else logOutcome(c, el.dataset.step, out); } break;
     case 'closeModal': UI.modal=null; renderModal(); break;
     case 'addLead': UI.modal={type:'addLead'}; renderModal(); break;
+    case 'impType': { const t=el.dataset.t; UI.impType=t; DB.settings.impType=t; if (UI.draft && UI.draft.rows){ UI.draft.type=t; UI.draft.detected=false; UI.draft.source=null; } save(); render(); } break;
     case 'toggleUploads': UI.showUploads=!UI.showUploads; render(); break;
     case 'addLeadSave': saveAddLead(); break;
     case 'useCallCap': DB.settings.caps.dials=+el.dataset.n||DB.settings.caps.dials; save(); render(); toast(`Dial target set to ${DB.settings.caps.dials} a day (Settings → Daily capacity)`); break;
@@ -2809,11 +2850,11 @@ document.addEventListener('click', e=>{
     case 'parsePaste': { const t=$('#pasteIn').value; if (!t.trim()) return;
       const first=t.split(/\r?\n/).find(l=>l.trim())||'';
       if (/employees|annual hires/i.test(first) || /^\s*#\s*$/m.test(t)){ UI.draft={label:'Pasted lead report', records:parseReportPaste(t)}; }
-      else if (first.includes('\t')){ const p=parseTsv(t); UI.draft={label:'Pasted rows', headers:p.headers, rows:p.rows, map:autoMap(p.headers)}; }
+      else if (first.includes('\t')){ const p=parseTsv(t); UI.draft=makeDraft('Pasted rows', p.headers, p.rows); }
       else { UI.draft={label:'Pasted text', records:parseReportPaste(t)}; }
       render(); } break;
     case 'cancelDraft': UI.draft=null; render(); break;
-    case 'commit': { const d=UI.draft; const recs=d.records||rowsToRecords(d.rows,d.map); const owner=$('#impOwner').value, choice=$('#impSource').value; const r=commitRecords(recs, owner, choice, $('#impUpdate')?.checked); logUpload({file:d.label, owner, choice, rows:recs.length, added:r.added, updated:r.updated, types:r.byType}); UI.draft=null; UI.tab='leads'; render(); { const due=DB.contacts.filter(x=>x.source==='Closed lost' && x.status==='Nurture' && x.revisitDate<=todayStr()).length; const inHs=DB.hsList?DB.contacts.filter(x=>x.status==='New' && hsMatch(x)).length:0; toast(`${r.added} added${r.added?` (${typesTxt(r.byType)})`:''}, ${r.updated} updated (duplicates merged)${due?` · ${due} closed-lost follow-ups due now on Today`:''}${inHs?` · ${inHs} already in HubSpot, held out of the queue`:''}`); } } break;
+    case 'commit': { const d=UI.draft; const recs=d.records||rowsToRecords(d.rows,d.map,d.type); const owner=$('#impOwner').value, choice=$('#impSource').value; const r=commitRecords(recs, owner, choice, $('#impUpdate')?.checked); logUpload({file:d.label, kind:IMPORT_TYPES[d.type||'zoominfo']?.label||'', owner, choice, rows:recs.length, added:r.added, updated:r.updated, types:r.byType, skipped:r.skipped||0}); UI.draft=null; UI.tab='leads'; render(); { const due=DB.contacts.filter(x=>x.source==='Closed lost' && x.status==='Nurture' && x.revisitDate<=todayStr()).length; const inHs=DB.hsList?DB.contacts.filter(x=>x.status==='New' && hsMatch(x)).length:0; toast(`${r.added} added${r.added?` (${typesTxt(r.byType)})`:''}, ${r.updated} updated (duplicates merged)${r.skipped?` · ${r.skip.won} closed won and ${r.skip.open} open deals skipped`:''}${due?` · ${due} closed-lost follow-ups due now on Today`:''}${inHs?` · ${inHs} already in HubSpot, held out of the queue`:''}`); } } break;
     case 'demo': loadDemo(); break;
     case 'wipe': if (confirm('Erase every contact, company and touch in this browser? Download the tracker first if you need it.') && confirm('Are you sure? This cannot be undone.')){ DB.contacts=[]; DB.companies={}; DB.lastExport=null; save(); render(); } break;
     /* run sheet */
@@ -2870,7 +2911,7 @@ document.addEventListener('change', async e=>{
       if (wb.SheetNames.includes('Contacts')){ const r=XLSX.utils.sheet_to_json(wb.Sheets['Contacts'],{defval:''}); if (r.length && 'PT_ID' in r[0]){ const res=restoreTracker(wb); UI.tab='today'; render(); toast(`Tracker ${UI.lastRestore?.own?'restored':'merged'}${UI.lastRestore?.own||!UI.lastRestore?.from?'':' from '+UI.lastRestore.from}: ${res.added} added, ${res.updated} updated, ${res.kept} kept (yours were newer)${res.bothOwned?`. ${res.bothOwned} leads were on both reps' lists: filter Leads by "Both had it"`:''}`); return; } }
       const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:'', raw:false});
       if (!rows.length){ alert('No rows found in the first sheet.'); return; }
-      const headers=Object.keys(rows[0]); UI.draft={label:file.name, headers, rows, map:autoMap(headers)}; render();
+      const headers=Object.keys(rows[0]); UI.draft=makeDraft(file.name, headers, rows); render();
     }catch(err){ alert('Could not read that file: '+err.message); }
     return; }
   if (el.id==='rsPlanned'){ UI.rs.planned=el.checked; render(); return; }
@@ -2888,6 +2929,7 @@ document.addEventListener('change', async e=>{
   if (d.filter && d.filter!=='q'){ if (d.filter==='sort') UI.sort=el.value; else UI.f[d.filter]= d.filter==='minOpt' ? +el.value : el.value; render(); return; }
   if (d.map){ UI.draft.map[d.map]=el.value; render(); return; }
   if (el.id==='impSource' && UI.draft){ UI.draft.source=el.value; return; }
+  if (el.dataset.act2==='openDeals' && UI.draft){ UI.draft.openDeals=el.checked; render(); return; }
   if (el.id==='bulkLost' && el.value){ let n=0; for (const x of DB.contacts) if (UI.selected.has(x.id)){ const L=x.lost||{}; const rs=x.source==='Closed lost' ? [...lossReasons(L).filter(k=>k!=='other' && k!==el.value), el.value] : [el.value];
       if (x.source!=='Closed lost' && ['Attempting','Connected','Discovery booked','Paused','New'].includes(x.status)){ x.status='Nurture'; x.pauseReason=''; } applyLost(x, {reasons:rs, date:L.date||todayStr()}); x.lost.reasons=rs; x.lost.cat=rs[0]; if (x.status==='Nurture') x.revisitDate=lostFollowUp(x).date; touch(x); n++; }
     save(); render(); toast(`${n} lead${n===1?'':'s'} marked closed-lost: ${LOSS_CATS[el.value]}. Follow-up dates set.`); return; }
