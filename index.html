@@ -1277,12 +1277,25 @@ const FIELD_DEFS = [
   ['bestTime','Best time to reach',['best time to call','best time to contact','best time to reach','best time','preferred contact time']],
   ['hubspotId','HubSpot record ID',['record id','contact id','hubspot id','deal id','record id - contact']],
   ['dealName','Deal name',['deal name']],
+  ['leadType','Lead type / source',['lead type','lead source','source','list source','lead category','list name','lead list','lead origin']],
 ];
+/* Reads a lead-type cell ("Apollo export", "Trade show", "Website form"...) as one of SOURCES; '' if it can't tell. */
+function sourceFrom(v){
+  const s=String(v||'').toLowerCase().trim(); if (!s) return '';
+  const exact=SOURCES.find(x=>x.toLowerCase()===s); if (exact) return exact;
+  if (/zoom ?info/.test(s)) return 'ZoomInfo'; if (/apollo/.test(s)) return 'Apollo'; if (/sales ?nav|navigator|linked ?in/.test(s)) return 'Sales Navigator';
+  if (/refer/.test(s)) return 'Referral'; if (/closed.?lost|win.?back/.test(s)) return 'Closed lost';
+  if (/inbound|web ?form|website|contact us|demo request|chat/.test(s)) return 'Inbound';
+  if (/event|trade ?show|conference|expo|booth|webinar|summit|shrm/.test(s)) return 'Event';
+  if (/manual|by hand|one.?off/.test(s)) return 'Manual add'; if (/\bold\b|re.?engage|recycl/.test(s)) return 'Old lead';
+  if (/list|purchas|other/.test(s)) return 'Other list'; return '';
+}
 const norm = s => String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
 function autoMap(headers){
   const map={}, used=new Set();
   for (const [f,,syn] of FIELD_DEFS){ const h=headers.find(h=>!used.has(h) && syn.map(norm).includes(norm(h))); if (h){ map[f]=h; used.add(h); } }
   for (const [f,,syn] of FIELD_DEFS){ if (map[f]) continue; const h=headers.find(h=>!used.has(h) && syn.some(s=>norm(s).length>4 && norm(h).includes(norm(s)))); if (h){ map[f]=h; used.add(h); } }
+  if (map.leadType && /original|latest|drill|record source|data source/i.test(map.leadType)) delete map.leadType;  /* HubSpot's analytics sources aren't lead types */
   return map;
 }
 const blank = v => { const s=String(v??'').trim(); return (s==='—'||s==='–'||s==='-'||/^n\/?a$/i.test(s)||/^null$/i.test(s)) ? '' : s; };
@@ -1303,7 +1316,7 @@ function rowsToRecords(rows, map){
       employees:num(g(r,'employees')), annualHires:num(g(r,'annualHires')), industry:g(r,'industry'),
       lastContacted:g(r,'lastContacted'), priorStatus:g(r,'priorStatus'), owner:g(r,'owner'), notes:g(r,'notes'),
       website:g(r,'website'), lossReason:g(r,'lossReason'), lossDate:toYmd(g(r,'lossDate')), recycle:toYmd(g(r,'recycle')), quote:num(g(r,'quote')), competitor:g(r,'competitor'), renewal:toYmd(g(r,'renewal')),
-      bestTime:g(r,'bestTime'), hubspotId:g(r,'hubspotId'), dealName:g(r,'dealName')};
+      bestTime:g(r,'bestTime'), hubspotId:g(r,'hubspotId'), dealName:g(r,'dealName'), leadType:g(r,'leadType')};
   }).filter(x=>x.name && x.company);
 }
 function parseReportPaste(text){
@@ -1336,10 +1349,14 @@ function parseTsv(text){
   return {headers, rows};
 }
 function repIdFromName(n){ const s=String(n||'').trim().toLowerCase(); if (!s) return ''; return DB.settings.reps.find(r=>r.name.toLowerCase()===s || r.name.toLowerCase().split(' ')[0]===s.split(' ')[0])?.id || ''; }
+/* Upload log: one row per import of a lead list or pasted report. Travels in the tracker ("Uploads" sheet). */
+function logUpload(x){ (DB.uploads ||= []).push({id:uid(), at:new Date().toISOString(), date:todayStr(), by:DB.settings.homeRep||DB.settings.currentRep, ...x}); save(); }
+const uploadsMine = () => (DB.uploads||[]).filter(u=>DB.settings.currentRep==='all' || u.owner===DB.settings.currentRep).sort((a,b)=>b.at.localeCompare(a.at));
+const typesTxt = t => Object.entries(t||{}).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${v} ${k}`).join(', ');
 function commitRecords(recs, ownerId, sourceMode, updateExisting){
   const byEmail=new Map(), byName=new Map();
   for (const c of DB.contacts){ if (c.email) byEmail.set(c.email, c); byName.set(norm(c.name)+'|'+c.companyKey, c); }
-  let added=0, updated=0;
+  let added=0, updated=0; const byType={};
   for (const r of recs){
     const key=coKey(r.company); if (!key) continue;
     const co = DB.companies[key] || (DB.companies[key] = {key, name:r.company, state:'', city:'', employees:'', annualHires:'', industry:'', higherTouch:false, organized:false, midOverride:null, trigger:'', triggerNote:'', triggerDate:'', provider:'', renewalDate:''});
@@ -1347,20 +1364,23 @@ function commitRecords(recs, ownerId, sourceMode, updateExisting){
     const ex = (r.email && byEmail.get(r.email)) || byName.get(norm(r.name)+'|'+key);
     if (isValidYmd(r.renewal) && !co.renewalDate) co.renewalDate=r.renewal;
     if (r.website && !co.domain) co.domain=cleanDomain(r.website);
-    const src = sourceMode==='auto' ? ((r.lossReason||r.lossDate||r.recycle) ? 'Closed lost' : (r.lastContacted||r.priorStatus) ? 'Old lead' : 'ZoomInfo') : sourceMode;
+    /* Lead type: closed-lost (loss details, or picked) wins; then the file's lead-type column, row by row; then the Source picked on Import. */
+    const fileType=sourceFrom(r.leadType), lostRow=!!(r.lossReason||r.lossDate||r.recycle);
+    const src = sourceMode==='Closed lost' || lostRow ? 'Closed lost' : fileType ? fileType : sourceMode==='auto' ? ((r.lastContacted||r.priorStatus) ? 'Old lead' : 'ZoomInfo') : sourceMode;
     const det=detectLoss(r.lossReason);
     const lostInfo = {reason:r.lossReason||'', reasons:det.reasons, date:r.lossDate||'', recycle:r.recycle||'', amount:r.quote||'', competitor:r.competitor||det.competitor||'', hubspotId:r.hubspotId||'', dealName:r.dealName||''};
     if (ex){ for (const f of ['first','last','title','email','directPhone','businessPhone','linkedin','lastContacted','priorStatus','bestTime']) if (r[f] && (updateExisting || !ex[f])) ex[f]=r[f]; if (r.liKnown) ex.liKnown=true;
       if (updateExisting){ for (const f of ['state','city','employees','annualHires','industry']) if (r[f]) co[f]=r[f]; if (isValidYmd(r.renewal)) co.renewalDate=r.renewal; }
+      if (updateExisting && fileType && src!==ex.source && src!=='Closed lost' && ex.source!=='Closed lost') ex.source=src;
       if (src==='Closed lost'){ if (!updateExisting && ex.lost) for (const k of Object.keys(lostInfo)) if (ex.lost[k]) delete lostInfo[k]; applyLost(ex, lostInfo); if (ex.status==='Nurture') ex.revisitDate=lostFollowUp(ex).date; } touch(ex); updated++; continue; }
     const c = {id:uid(), owner:repIdFromName(r.owner)||ownerId, status:'New', track:'', source:src, name:r.name, first:r.first, last:r.last, title:r.title,
       email:r.email, directPhone:r.directPhone, businessPhone:r.businessPhone, linkedin:r.linkedin, liKnown:r.liKnown, companyKey:key,
       lastContacted:r.lastContacted, priorStatus:r.priorStatus, notes:r.notes, touches:[], startDate:'', revisitDate:'', pauseReason:'',
       tzOverride:'', personaOverride:'', phoneBad:false, emailBad:false, bestTime:r.bestTime||'', createdAt:Date.now(), updatedAt:Date.now()};
     if (src==='Closed lost') applyLost(c, lostInfo);
-    DB.contacts.push(c); if (c.email) byEmail.set(c.email,c); byName.set(norm(c.name)+'|'+key, c); added++;
+    DB.contacts.push(c); if (c.email) byEmail.set(c.email,c); byName.set(norm(c.name)+'|'+key, c); added++; byType[src]=(byType[src]||0)+1;
   }
-  save(); return {added, updated};
+  save(); return {added, updated, byType};
 }
 
 /* ---------------- Tracker workbook ---------------- */
@@ -1386,7 +1406,8 @@ function buildTrackerWorkbook(){
   const Cfg = []; for (let i=0;i<cfg.length;i+=30000) Cfg.push({'Part':Cfg.length+1,'Config (scripts, cadence, schedule, settings — do not edit)':cfg.slice(i,i+30000)});
   const wb = XLSX.utils.book_new();
   const add = (rows,name,headers) => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length?rows:[], rows.length?undefined:{header:headers}), name);
-  add(C,'Contacts',['PT_ID']); add(T,'Touches',['PT_ID']); add(K,'Companies',['Company Key']); add(Cfg,'Config',['Part']);
+  const Up = (DB.uploads||[]).map(u=>({'Upload ID':u.id,'Date':u.date,'Logged At':u.at,'File':u.file||'','Owner':repName(u.owner),'Owner ID':u.owner,'Imported By':repName(u.by),'Imported By ID':u.by||'','Rows':u.rows||'','Added':u.added,'Updated':u.updated,'Lead Types':typesTxt(u.types),'Lead Types (data)':JSON.stringify(u.types||{}),'Source Picked':u.choice||''}));
+  add(C,'Contacts',['PT_ID']); add(T,'Touches',['PT_ID']); add(K,'Companies',['Company Key']); add(Up,'Uploads',['Upload ID']); add(Cfg,'Config',['Part']);
   return wb;
 }
 const fileTag = () => (DB.settings.currentRep==='all' ? 'both-reps' : repName(DB.settings.currentRep)).replace(/\W+/g,'-').toLowerCase();
@@ -1476,6 +1497,9 @@ function restoreTracker(wb){
     else if ((inc.updatedAt||0) > (ex.updatedAt||0)){ Object.assign(ex, inc); updated++; }
     else kept++;
   }
+  for (const r of rows('Uploads')){ const id=r['Upload ID']; if (!id || (DB.uploads ||= []).some(u=>u.id===id)) continue;
+    let types={}; try { types=JSON.parse(r['Lead Types (data)']||'{}'); } catch(e){}
+    DB.uploads.push({id, date:toYmd(r['Date'])||String(r['Date']||''), at:r['Logged At']||'', file:r['File']||'', owner:resolveOwner(r['Owner'], r['Owner ID']), by:r['Imported By ID']||'', rows:+r['Rows']||0, added:+r['Added']||0, updated:+r['Updated']||0, types, choice:r['Source Picked']||''}); }
   save(); return {added, updated, kept, overlap, bothOwned};
 }
 /* ---------- HubSpot export ----------
@@ -1997,6 +2021,8 @@ const LEAD_VIEWS = [
   ['inHs','Already in HubSpot', c=>typeof hsMatch==='function' && !!hsMatch(c)],
   ['both','Both reps had it', c=>!!c.alsoOn],
 ];
+const addedYmd = c => c.createdAt ? ymd(new Date(c.createdAt)) : '';
+const ADDED_RANGES = [['','Added any time'],['week','Added this week'],['last','Added last week'],['30','Added in the last 30 days'],['90','Added in the last 90 days']];
 function filteredContacts(){
   const f=UI.f, q=f.q.trim().toLowerCase(), cur=DB.settings.currentRep;
   const vw=(LEAD_VIEWS.find(v=>v[0]===(f.view||'all'))||LEAD_VIEWS[0])[2];
@@ -2013,11 +2039,12 @@ function filteredContacts(){
     if (f.band && (acctSize(company(c)).band||'none')!==f.band) return false;
     if (f.source==='both' ? !c.alsoOn : (f.source && c.source!==f.source)) return false;
     if (f.state && normState(co.state)!==f.state) return false;
+    if (f.added){ const a=addedYmd(c), r=kpiRange(f.added); if (!a || a<r.from || a>r.to) return false; }
     return true;
   });
   const cmp = { priority:(a,b)=>priority(b)-priority(a), company:(a,b)=>company(a).name.localeCompare(company(b).name)||priority(b)-priority(a),
     zone:(a,b)=>(ZONES[zoneInfo(a).zone]?.order??9)-(ZONES[zoneInfo(b).zone]?.order??9)||priority(b)-priority(a),
-    next:(a,b)=>{ const x=nextStep(a)?.due||'9999', y=nextStep(b)?.due||'9999'; return x<y?-1:x>y?1:0; }, status:(a,b)=>STATUSES.indexOf(a.status)-STATUSES.indexOf(b.status) }[UI.sort];
+    next:(a,b)=>{ const x=nextStep(a)?.due||'9999', y=nextStep(b)?.due||'9999'; return x<y?-1:x>y?1:0; }, status:(a,b)=>STATUSES.indexOf(a.status)-STATUSES.indexOf(b.status), added:(a,b)=>(b.createdAt||0)-(a.createdAt||0) }[UI.sort];
   return list.sort(cmp);
 }
 function renderLeads(){
@@ -2034,8 +2061,9 @@ function renderLeads(){
     <select data-filter="persona"><option value="">Any persona</option>${Object.entries(PERSONAS).map(([k,p])=>`<option value="${k}" ${f.persona===k?'selected':''}>${p.label}</option>`).join('')}</select>
     <select data-filter="band"><option value="">Any size</option>${[['prime','Prime ($10K–$150K)'],['rfp','RFP (over $150K)'],['small','Small (under $10K)'],['none','No estimate']].map(([v,l])=>`<option value="${v}" ${f.band===v?'selected':''}>${l}</option>`).join('')}</select>
     <select data-filter="source"><option value="">Any source</option>${SOURCES.map(x=>`<option ${f.source===x?'selected':''}>${x}</option>`).join('')}<option value="both" ${f.source==='both'?'selected':''}>Both had it</option></select>
+    <select data-filter="added">${ADDED_RANGES.map(([v,l])=>`<option value="${v}" ${(f.added||'')===v?'selected':''}>${l}</option>`).join('')}</select>
     <select data-filter="state"><option value="">Any state</option>${states.map(x=>`<option ${f.state===x?'selected':''}>${x}</option>`).join('')}</select>
-    <select data-filter="sort"><option value="priority" ${UI.sort==='priority'?'selected':''}>Sort: priority</option><option value="company" ${UI.sort==='company'?'selected':''}>Sort: company</option><option value="zone" ${UI.sort==='zone'?'selected':''}>Sort: time zone</option><option value="next" ${UI.sort==='next'?'selected':''}>Sort: next due</option><option value="status" ${UI.sort==='status'?'selected':''}>Sort: status</option></select>
+    <select data-filter="sort"><option value="added" ${UI.sort==='added'?'selected':''}>Sort: newest added</option><option value="priority" ${UI.sort==='priority'?'selected':''}>Sort: priority</option><option value="company" ${UI.sort==='company'?'selected':''}>Sort: company</option><option value="zone" ${UI.sort==='zone'?'selected':''}>Sort: time zone</option><option value="next" ${UI.sort==='next'?'selected':''}>Sort: next due</option><option value="status" ${UI.sort==='status'?'selected':''}>Sort: status</option></select>
   </div><div class="filters"><span class="small muted">Time zone:</span><div class="chips">${zchips}</div><span class="small muted">${list.length} contact${list.length===1?'':'s'}${list.length>shown.length?` (showing first ${shown.length})`:''}</span></div>`;
   const sel=UI.selected;
   if (!sel.size) h += `<p class="small muted" style="margin:0 0 8px">Click a lead to edit any detail, change its status, mark it closed-lost or delete it. Tick several to update them together. To update many at once from a file, re-import it on the Import tab with "Update existing leads" ticked.</p>`;
@@ -2043,13 +2071,14 @@ function renderLeads(){
     <button class="btn sm primary" data-act="bulkStart">Start cadence today</button>
     <select id="bulkOwner"><option value="">Assign to…</option>${s.reps.map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select>
     <select id="bulkStatus"><option value="">Set status…</option>${STATUSES.filter(x=>x!=='Attempting').map(x=>`<option>${x}</option>`).join('')}</select>
+    <select id="bulkSource" title="Closed lost isn't here: use Mark closed-lost"><option value="">Set lead type…</option>${SOURCES.filter(x=>x!=='Closed lost').map(x=>`<option>${x}</option>`).join('')}</select>
     <select id="bulkLost"><option value="">Mark closed-lost: reason…</option>${Object.entries(LOSS_CATS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
     <button class="btn sm" data-act="bulkHubspot">Export to HubSpot CSV</button>
     <button class="btn sm bad" data-act="bulkDelete">Delete</button>
     <button class="btn sm" data-act="clearSel">Clear</button></div>`;
   if (!list.length) return h + `<div class="empty">No contacts match these filters.</div>`;
   const allSel = shown.every(c=>sel.has(c.id));
-  h += `<div class="tablewrap"><table><thead><tr><th><input type="checkbox" data-act="selAll" ${allSel?'checked':''}></th><th>Contact</th><th>Company</th><th>Opt</th><th>Zone · their time</th><th>Persona</th><th>Status</th><th>Last touch</th><th>Next touch</th><th>Owner</th></tr></thead><tbody>`;
+  h += `<div class="tablewrap"><table><thead><tr><th><input type="checkbox" data-act="selAll" ${allSel?'checked':''}></th><th>Contact</th><th>Company</th><th>Opt</th><th>Zone · their time</th><th>Persona</th><th>Status</th><th>Last touch</th><th>Next touch</th><th>Added</th><th>Owner</th></tr></thead><tbody>`;
   h += shown.map(c=>{ const co=company(c), z=zoneInfo(c), n=nextStep(c), o=optimal(co);
     return `<tr class="row ${bandCls(c)}" data-act="open" data-id="${c.id}"><td data-stop="1"><input type="checkbox" data-act="sel" data-id="${c.id}" ${sel.has(c.id)?'checked':''}></td>
       <td><b>${esc(c.name)}</b>${c.source==='Old lead'?' <span class="tag warn">Old</span>':''}${c.alsoOn?' <span class="tag bad" title="'+esc(c.alsoOn)+'">Both had it</span>':''}<br><span class="small muted">${esc(c.title)}</span></td>
@@ -2060,6 +2089,7 @@ function renderLeads(){
       <td><span class="tag ${c.status==='Discovery booked'?'good':c.status==='Do not contact'||c.status==='Unqualified'?'bad':c.status==='Paused'?'warn':''}">${esc(c.status)}</span></td>
       <td class="small">${(()=>{ const t=allTouches(c).filter(x=>x.outcome!=='Skip').pop(); if (!t) return '<span class="muted">none</span>'; const d=daysBetween(t.date, todayStr()); return `${esc(t.outcome)}<br><span class="muted">${CH_LABEL[t.ch]||t.ch} · ${d===0?'today':d===1?'yesterday':d+' days ago'}</span>`; })()}</td>
       <td class="small">${pendingRecalls(c)[0]?`<span class="tag good">Call-back ${prettyDate(pendingRecalls(c)[0].date)} ${fmtHour(hrs(pendingRecalls(c)[0].time))}</span><br>`:''}${c.emailBad?'<span class="tag bad">Email bounced</span><br>':c.emailBlocked||company(c).emailBlocked?'<span class="tag bad">Email blocked</span><br>':''}${n?`${esc(n.step.label)}<br><span class="muted">${prettyDate(n.due)}</span>`:c.revisitDate&&c.status==='Nurture'?`Revisit ${prettyDate(c.revisitDate)}`:'—'}</td>
+      <td class="small">${(()=>{ const a=addedYmd(c); if (!a) return '<span class="muted">—</span>'; const d=daysBetween(a, todayStr()); return `${prettyDate(a)}<br><span class="muted">${esc(c.source||'')}${d>0?` · ${d}d ago`:' · today'}</span>`; })()}</td>
       <td class="small">${esc(repName(c.owner))}</td></tr>`; }).join('');
   return h + `</tbody></table></div>`;
 }
@@ -2081,6 +2111,9 @@ function renderImportBody(){
     <h3>Or paste</h3><p class="small muted">Paste the lead report text (company line with "• employees • est. annual hires" followed by the contact table), or rows copied from Excel with a header row.</p>
     <textarea id="pasteIn" placeholder="AAA Example Co   (Alabama  •  8,700 employees  •  ~5,200 est. annual hires)&#10;#&#10;Contact&#10;Title&#10;…"></textarea>
     <div style="margin-top:8px"><button class="btn" data-act="parsePaste">Read pasted text</button></div></div>`;
+  { const U=uploadsMine(), n=UI.showUploads?U.length:8;
+    h += `<div class="card" style="margin-top:12px"><h3 style="margin-top:0">Upload log <span class="count">${U.length}</span></h3><p class="small muted" style="margin-top:0">Every lead list or pasted report you import, with how many were new and their lead types. Trackers and run sheets aren't listed. Travels in your tracker, so your teammate's uploads show here after a swap. Follows Working as.</p>
+    ${U.length?`<div class="tablewrap"><table><thead><tr><th>Date</th><th>File</th><th>Owner</th><th>Added</th><th>Updated</th><th>Lead types (new leads)</th><th>Source picked</th></tr></thead><tbody>${U.slice(0,n).map(u=>`<tr><td>${prettyDate(u.date)}<br><span class="small muted">${new Date(u.at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}${u.by&&u.by!==u.owner?` · by ${esc(repName(u.by))}`:''}</span></td><td>${esc(u.file||'')}</td><td>${esc(repName(u.owner))}</td><td><b>${u.added}</b></td><td>${u.updated}</td><td class="small">${esc(typesTxt(u.types))||'—'}</td><td class="small">${u.choice==='auto'?'Auto':esc(u.choice||'')}</td></tr>`).join('')}</tbody></table></div>${U.length>8?`<button class="btn sm" data-act="toggleUploads">${UI.showUploads?'Show fewer':`Show all ${U.length}`}</button>`:''}`:'<p class="small muted">No uploads logged yet. Imports from now on are listed here; leads already in the app keep the date they were added (see the Added column in Leads).</p>'}</div>`; }
   if (d){
     const recs = d.records || (d.map ? rowsToRecords(d.rows, d.map) : []);
     const ownerSel = `<select id="impOwner">${s.reps.map(r=>`<option value="${r.id}" ${(s.currentRep===r.id)?'selected':''}>${esc(r.name)}</option>`).join('')}</select>`;
@@ -2091,9 +2124,11 @@ function renderImportBody(){
     }
     const cos=new Set(recs.map(r=>coKey(r.company)));
     h += `<p><b>${recs.length}</b> contacts across <b>${cos.size}</b> compan${cos.size===1?'y':'ies'} ready.</p>`;
-    if (recs.length) h += `<div class="tablewrap"><table><thead><tr><th>Name</th><th>Title</th><th>Company</th><th>Email</th><th>Direct</th><th>Business</th><th>Zone</th></tr></thead><tbody>${recs.slice(0,8).map(r=>{ const a=areaCode(r.directPhone)||areaCode(r.businessPhone); const z=AREA[a]||STATE_ZONE[normState(r.state)]||''; return `<tr><td>${esc(r.name)}</td><td>${esc(r.title)}</td><td>${esc(r.company)}</td><td>${esc(r.email)}</td><td>${esc(r.directPhone)}</td><td>${esc(r.businessPhone)}</td><td>${zoneBadge(z)}</td></tr>`; }).join('')}</tbody></table></div>`;
+    { const withType=recs.filter(r=>r.leadType); if (withType.length){ const tally={}; let unk=0, unkEx=new Set(); for (const r of withType){ const t=(r.lossReason||r.lossDate||r.recycle)?'Closed lost':sourceFrom(r.leadType); if (t) tally[t]=(tally[t]||0)+1; else { unk++; unkEx.add(r.leadType); } }
+      h += `<p class="small"><b>Lead type from the file</b> (column "${esc(d.map?.leadType||'')}"): ${Object.entries(tally).map(([k,v])=>`${v} ${esc(k)}`).join(' · ')||'none recognized'}${unk?` · <span class="tag warn">${unk} not recognized</span> <span class="muted">(${[...unkEx].slice(0,4).map(esc).join(', ')}) use the Source picked below</span>`:''}${recs.length>withType.length?` · ${recs.length-withType.length} blank, using the Source picked below`:''}. A loss reason or close date still marks a row closed lost.</p>`; } }
+    if (recs.length) h += `<div class="tablewrap"><table><thead><tr><th>Name</th><th>Title</th><th>Company</th><th>Email</th><th>Direct</th><th>Business</th><th>Zone</th>${recs.some(r=>r.leadType)?'<th>Lead type</th>':''}</tr></thead><tbody>${recs.slice(0,8).map(r=>{ const a=areaCode(r.directPhone)||areaCode(r.businessPhone); const z=AREA[a]||STATE_ZONE[normState(r.state)]||''; return `<tr><td>${esc(r.name)}</td><td>${esc(r.title)}</td><td>${esc(r.company)}</td><td>${esc(r.email)}</td><td>${esc(r.directPhone)}</td><td>${esc(r.businessPhone)}</td><td>${zoneBadge(z)}</td>${recs.some(x=>x.leadType)?`<td>${(r.lossReason||r.lossDate||r.recycle)?'Closed lost':esc(sourceFrom(r.leadType)||(r.leadType?r.leadType+' (?)':''))}${!(r.lossReason||r.lossDate||r.recycle)&&!sourceFrom(r.leadType)?' <span class="small muted">→ Source below</span>':''}</td>`:''}</tr>`; }).join('')}</tbody></table></div>`;
     h += `<div class="filters" style="margin-top:12px"><label class="small">Assign to ${ownerSel}</label>
-      <label class="small">Source <select id="impSource"><option value="auto">Auto (closed lost if it has a loss reason or close date; old lead if it has a last-contacted date or status)</option>${SOURCES.filter(x=>x!=='Closed lost').map(x=>`<option>${x}</option>`).join('')}<option value="Closed lost">Closed lost (HubSpot export)</option></select></label>
+      <label class="small">${recs.some(r=>r.leadType)?'Source for rows without a lead type':'Source'} <select id="impSource"><option value="auto">Auto (closed lost if it has a loss reason or close date; old lead if it has a last-contacted date or status)</option>${SOURCES.filter(x=>x!=='Closed lost').map(x=>`<option ${d.source===x?'selected':''}>${x}</option>`).join('')}<option value="Closed lost" ${d.source==='Closed lost'?'selected':''}>Closed lost (HubSpot export)</option></select></label>
       <label class="chk small" title="Off: a lead already in the planner only gets blanks filled in. On: values in this file replace what's there (empty cells never erase anything)."><input type="checkbox" id="impUpdate"> Update existing leads with this file's values</label>
       <button class="btn primary" data-act="commit" ${recs.length?'':'disabled'}>Import ${recs.length} contacts</button><button class="btn" data-act="cancelDraft">Cancel</button></div></div>`;
   }
@@ -2299,6 +2334,25 @@ function kpiGroups(list, from, to, keyFn){
   const g=new Map(); for (const c of list){ const [o,l]=keyFn(c); if (!g.has(l)) g.set(l,{o,label:l,list:[]}); g.get(l).list.push(c); }
   return [...g.values()].sort((a,b)=>a.o-b.o).map(x=>({label:x.label, ...kpiCompute(x.list, from, to)})).filter(x=>x.touched||x.meetings);
 }
+/* Leads added: when leads came in (the date each was added), by lead type, and what became of them. */
+function kpiAdded(list, from, to){
+  const t=todayStr(), callable=c=>!!(c.directPhone||c.businessPhone) && !c.phoneBad;
+  const stat = arr => ({added:arr.length, callable:arr.filter(callable).length, started:arr.filter(c=>!!c.startDate || allTouches(c).length>0).length,
+    reached:arr.filter(c=>allTouches(c).some(x=>LIVE.has(x.outcome) || RESPONSE.has(x.outcome))).length, booked:arr.filter(c=>c.status==='Discovery booked' || !!c.discoveryDate).length});
+  const inR=(c,a,b)=>{ const d=addedYmd(c); return !!d && d>=a && d<=b; };
+  const period=list.filter(c=>inR(c,from,to)), types={};
+  for (const c of period) (types[c.source||'Other'] ||= []).push(c);
+  const byType=Object.entries(types).sort((a,b)=>{ const i=SOURCES.indexOf(a[0]), j=SOURCES.indexOf(b[0]); return (i<0?99:i)-(j<0?99:j); }).map(([k,arr])=>({label:k, ...stat(arr)}));
+  const weeks=[]; let ws=weekStart(t);
+  for (let i=0;i<8;i++){ const arr=list.filter(c=>inR(c,ws,addDays(ws,6))), by={}; for (const c of arr) by[c.source||'Other']=(by[c.source||'Other']||0)+1; weeks.unshift({label:prettyDate(ws), by, ...stat(arr)}); ws=addDays(ws,-7); }
+  const wkTypes=SOURCES.filter(s=>weeks.some(w=>w.by[s])).concat(weeks.some(w=>w.by.Other)?['Other']:[]);
+  /* What the dial target needs (not in playbook, review): weekly dials ÷ dials each lead produces. */
+  const nReps = DB.settings.currentRep==='all' ? DB.settings.reps.length : 1, e=expectedPerContact(), wkDials=(+DB.settings.caps.dials||0)*5*nReps;
+  const needLong=wkDials/(e.call||1), needRamp=wkDials/((e.sprint&&e.sprint.call)||e.call||1);
+  const last4=list.filter(c=>inR(c,addDays(t,-27),t)).length/4;
+  const q=queueModel(), waiting=q.waiting.filter(c=>list.includes(c)), waitCall=waiting.filter(callable).length, perDay=recommend().steady*nReps;
+  return {total:stat(period), byType, weeks, wkTypes, need:{wkDials, needLong, needRamp, perLead:e.call, last4, waiting:waiting.length, waitCall, perDay, days: perDay ? waitCall/perDay : 0, nReps}};
+}
 function kpiModel(){
   const list=DB.contacts.filter(mine), p=UI.kpi.period, {from,to}=kpiRange(p), days=bizDaysIn(list,from,to);
   const sum=kpiCompute(list, from, to);
@@ -2311,7 +2365,7 @@ function kpiModel(){
   const mtd=kpiCompute(list, mStart, t), r90=kpiCompute(list, addDays(t,-89), t), bizMonth=weekdaysBetween(mStart,mEnd), bizSoFar=weekdaysBetween(mStart,t);
   const pace={goal, mtd:mtd.meetings, expected: bizMonth ? goal*bizSoFar/bizMonth : 0, bizMonth, bizSoFar,
     dialsPer: r90.meetings ? r90.dials/r90.meetings : null, need: r90.meetings && bizMonth ? (goal/nReps)/bizMonth*(r90.dials/r90.meetings) : null, r90};
-  return {list, p, from, to, days, sum, weeks, byRep, status, pace,
+  return {list, p, from, to, days, sum, weeks, byRep, status, pace, added:kpiAdded(list, from, to),
     steps:kpiSteps(list, from, to), hours:kpiHours(list, from, to),
     lossRsn:kpiGroups(list.filter(c=>c.source==='Closed lost'), from, to, c=>{ const k=lossKeyOf(c); return [Object.keys(LOSS_OPENER).indexOf(k), k==='multi'?'Several reasons':LOSS_CATS[k]||k]; }),
     source:kpiGroups(list, from, to, c=>{ const o=SOURCES; const i=o.indexOf(c.source); return [i<0?9:i, c.source||'Other']; }),
@@ -2325,7 +2379,7 @@ function renderKpi(){
   const card=(label,big,sub,cls='')=>`<div class="card stat ${cls}"><span class="muted small">${label}</span><b>${big}</b><span class="small muted">${sub}</span></div>`;
   const chips=KPI_PERIODS.map(([v,l])=>`<button class="chipbtn ${m.p===v?'on':''}" data-act="kpiPeriod" data-p="${v}">${l}</button>`).join('');
   let h = `<div class="filters"><div class="chips">${chips}</div><span class="small muted">${m.p==='all'?'All logged activity':`${prettyDate(m.from)} to ${prettyDate(m.to<todayStr()?m.to:todayStr())}`} · ${m.days} business day${m.days===1?'':'s'} · ${DB.settings.currentRep==='all'?'both reps':esc(repName(DB.settings.currentRep))}</span><div class="spacer"></div><button class="btn" data-act="kpiExport">Download KPI report (.xlsx)</button></div>`;
-  const V=UI.kpi.view||'summary'; h += `<div class="seg kpitabs">${[['summary','Summary'],['scorecard','Playbook scorecard'],['steps','Cadence steps and hours'],['segments','Segments']].map(([k,l])=>`<button class="chipbtn ${V===k?'on':''}" data-act="kpiView" data-v="${k}">${l}</button>`).join('')}</div>`;
+  const V=UI.kpi.view||'summary'; h += `<div class="seg kpitabs">${[['summary','Summary'],['scorecard','Playbook scorecard'],['steps','Cadence steps and hours'],['segments','Segments'],['added','Leads added']].map(([k,l])=>`<button class="chipbtn ${V===k?'on':''}" data-act="kpiView" data-v="${k}">${l}</button>`).join('')}</div>`;
   if (V==='summary') h += `<div class="grid stats">
     ${card('Dials per day', perDay.toFixed(1), `${k.dials} dials · target ${caps.dials}/day`, perDay<caps.dials*0.8 && m.p!=='all' ? 'over' : '')}
     ${card('Live-answer rate', pct(k.live,k.dials), `${k.live} live · ${k.vm} voicemails · ${k.gk} gatekeepers`)}
@@ -2363,6 +2417,13 @@ function renderKpi(){
   if (V==='segments') h += grp('Closed-lost win-backs by loss reason', 'Which loss reasons come back. Grouped by the reason that picks the script.', m.lossRsn);
   if (V==='segments') h += grp('By lead source', 'Closed-lost win-backs next to new and old leads.', m.source);
   if (V==='segments') h += grp('By persona', '', m.persona);
+  if (V==='added'){ const A=m.added, N=A.need, gap=N.last4-N.needLong, row=(r,label)=>`<tr><td><b>${esc(label??r.label)}</b></td><td>${r.added}</td><td>${r.callable} <span class="small muted">${pct(r.callable,r.added)}</span></td><td>${r.started}</td><td>${r.reached} <span class="small muted">${pct(r.reached,r.started)}</span></td><td><b>${r.booked}</b></td><td>${r.added?(100*r.booked/r.added).toFixed(1):'–'}</td></tr>`;
+    h += `<h2>Leads added</h2><p class="small muted" style="margin-top:-4px">By the date each lead went into the app (import, + Add lead or a referral), and what has happened to them since. Lead type is the Source on the lead. Follows Working as and the period above.</p>
+    <div class="grid stats">${card('Added in this period', A.total.added, `${A.total.callable} with a phone · ${A.total.started} started`)}${card('Added a week (last 4 weeks)', N.last4.toFixed(0), `need about ${Math.round(N.needLong)} a week`, gap<-0.5?'over':'')}${card('Callable leads waiting', N.waitCall, N.perDay?`about ${N.days.toFixed(1)} business days of starts at ${N.perDay} a day`:'')}</div>
+    <div class="card" style="margin-top:8px"><b>How many leads your dial target needs</b> <span class="tag warn small">not in playbook, review</span><p class="small" style="margin:6px 0 0">${N.wkDials} dials a week${N.nReps>1?` (both reps)`:''} at ${DB.settings.connectRate}% live answers: each new lead gives about <b>${N.perLead.toFixed(1)} dials</b> over its sprint and nurture rounds, so you need about <b>${Math.round(N.needLong)} new callable leads a week</b> once nurture is running, and about <b>${Math.round(N.needRamp)} a week</b> for the first month (nurture calls start two weeks after each sprint). You've added about <b>${N.last4.toFixed(0)} a week</b> over the last 4 weeks${gap<-0.5?`, about ${Math.round(-gap)} a week short`:gap>0.5?', enough to keep up':''}. The start queue holds ${N.waiting} lead${N.waiting===1?'':'s'}, ${N.waitCall} with a phone number.</p></div>
+    <h3>By week added</h3><div class="tablewrap"><table><thead><tr><th>Week of</th><th>Added</th>${A.wkTypes.map(s=>`<th class="small">${esc(s)}</th>`).join('')}<th>Started</th><th>Reached</th><th>Booked</th></tr></thead><tbody>${A.weeks.map(w=>`<tr><td>${w.label}</td><td><b>${w.added}</b></td>${A.wkTypes.map(s=>`<td>${w.by[s]||''}</td>`).join('')}<td>${w.started}</td><td>${w.reached}</td><td><b>${w.booked}</b></td></tr>`).join('')}</tbody></table></div>
+    <h3>By lead type (added ${m.p==='all'?'any time':'in this period'})</h3>${A.byType.length?`<div class="tablewrap"><table><thead><tr><th>Lead type</th><th>Added</th><th>With a phone</th><th>Started</th><th>Reached (of started)</th><th>Booked</th><th>Booked per 100 added</th></tr></thead><tbody>${A.byType.map(r=>row(r)).join('')}${A.byType.length>1?row(A.total,'All types'):''}</tbody></table></div>`:'<div class="empty">No leads added in this period.</div>'}
+    <p class="small muted">Reached: spoke with them on the phone or they replied. Booked: discovery booked, whenever it happened. Leads added recently haven't had time to book, so compare older weeks. The upload log (each file you imported) is on the Import tab.</p>`; }
   if (V==='summary') h += `<h2>Pipeline now</h2><div class="seg">${STATUSES.filter(s=>m.status[s]).map(s=>`<span class="tag ${s==='Discovery booked'?'good':s==='Paused'?'warn':''}" style="font-size:13px;padding:4px 10px">${s}: <b>${m.status[s]}</b></span>`).join('')}</div>`;
   h += `<div class="card" style="margin-top:16px"><b>How these are counted</b><p class="small muted" style="margin:6px 0 0">Dials: every logged call outcome except Skip, including call-backs. Live: Connected, Meeting booked, Call back (spoke with them), Not the right person, Do not call. Conversations (the playbook's second link): phone calls where you spoke with the prospect, meaning Connected, Call back (spoke with them) or Meeting booked; email and LinkedIn replies are counted separately. Meetings: contacts now at Discovery booked, by the date it was booked. Reply rate: email replies and meetings booked by email ÷ emails sent. Started: contacts whose cadence began in the period. Dials per day divides by business days in the period, so a week still in progress counts only the days so far.</p></div>`;
   return h;
@@ -2384,6 +2445,11 @@ function exportKpi(){
   add([['Track','Day','Step','Channel','Done','Responses','Rate','Meetings started here'], ...m.steps.filter(x=>x.done||x.track===TRACK_LABEL.cold).map(x=>[x.track,x.day,x.label,CH_LABEL[x.ch],x.done,x.resp,r(x.resp,x.done),x.meet])], 'By step', [26,6,40,9,7,10,8,20]);
   add([['Prospect local hour','Dials','Live','Live rate'], ...m.hours.rows.map(x=>[x.label,x.dials,x.live,r(x.live,x.dials)])], 'By hour', [18,8,8,10]);
   const g=rows=>[['Group','Contacts worked','Dials','Live rate','Reply rate','Reached rate','Meetings','Meetings per 100 contacts'], ...rows.map(x=>[x.label,x.touched,x.dials,r(x.live,x.dials),r(x.replies,x.emails),r(x.reached,x.touched),x.meetings,x.touched?+(100*x.meetings/x.touched).toFixed(1):''])];
+  { const A=m.added, N=A.need, ga=x=>[x.label,x.added,x.callable,x.started,x.reached,x.booked,x.added?+(100*x.booked/x.added).toFixed(1):''];
+    add([['Lead type','Added','With a phone','Started','Reached','Booked','Booked per 100 added'], ...A.byType.map(ga), ...(A.byType.length>1?[ga({...A.total,label:'All types'})]:[]), [],
+      ['Weekly dials (target)',N.wkDials],['Dials per new lead (sprint + nurture)',+N.perLead.toFixed(2)],['New leads needed a week, once nurture runs',Math.round(N.needLong)],['New leads needed a week, first month',Math.round(N.needRamp)],['Added a week, last 4 weeks',+N.last4.toFixed(1)],['Callable leads waiting in the start queue',N.waitCall]], 'Leads added by type', [40,8,12,9,9,8,20]);
+    add([['Week of','Added',...A.wkTypes,'Started','Reached','Booked'], ...A.weeks.map(w=>[w.label,w.added,...A.wkTypes.map(s=>w.by[s]||0),w.started,w.reached,w.booked])], 'Leads added by week', [14,8,...A.wkTypes.map(()=>12),9,9,8]);
+    add([['Date','File','Owner','Added','Updated','Lead types','Source picked'], ...uploadsMine().map(u=>[u.date,u.file||'',repName(u.owner),u.added,u.updated,typesTxt(u.types),u.choice||''])], 'Upload log', [12,36,12,8,9,40,14]); }
   add(g(m.spend),'By account size',[26,16,8,10,10,12,9,22]); add(g(m.opt),'By Optimal score',[14,16,8,10,10,12,9,22]); add(g(m.lossRsn),'Win-backs by loss reason',[30,16,8,10,10,12,9,22]); add(g(m.source),'By lead source',[16,16,8,10,10,12,9,22]); add(g(m.persona),'By persona',[30,16,8,10,10,12,9,22]);
   XLSX.writeFile(wb, `kpi-${fileTag()}-${m.p}-${todayStr()}.xlsx`);
 }
@@ -2586,6 +2652,7 @@ document.addEventListener('click', e=>{
       else logOutcome(c, el.dataset.step, out); } break;
     case 'closeModal': UI.modal=null; renderModal(); break;
     case 'addLead': UI.modal={type:'addLead'}; renderModal(); break;
+    case 'toggleUploads': UI.showUploads=!UI.showUploads; render(); break;
     case 'addLeadSave': saveAddLead(); break;
     case 'useCallCap': DB.settings.caps.dials=+el.dataset.n||DB.settings.caps.dials; save(); render(); toast(`Dial target set to ${DB.settings.caps.dials} a day (Settings → Daily capacity)`); break;
     case 'cycleNoteOff': UI.cycleNote=null; render(); break;
@@ -2691,7 +2758,7 @@ document.addEventListener('click', e=>{
       else { UI.draft={label:'Pasted text', records:parseReportPaste(t)}; }
       render(); } break;
     case 'cancelDraft': UI.draft=null; render(); break;
-    case 'commit': { const d=UI.draft; const recs=d.records||rowsToRecords(d.rows,d.map); const r=commitRecords(recs, $('#impOwner').value, $('#impSource').value, $('#impUpdate')?.checked); UI.draft=null; UI.tab='leads'; render(); { const due=DB.contacts.filter(x=>x.source==='Closed lost' && x.status==='Nurture' && x.revisitDate<=todayStr()).length; const inHs=DB.hsList?DB.contacts.filter(x=>x.status==='New' && hsMatch(x)).length:0; toast(`${r.added} added, ${r.updated} updated (duplicates merged)${due?` · ${due} closed-lost follow-ups due now on Today`:''}${inHs?` · ${inHs} already in HubSpot, held out of the queue`:''}`); } } break;
+    case 'commit': { const d=UI.draft; const recs=d.records||rowsToRecords(d.rows,d.map); const owner=$('#impOwner').value, choice=$('#impSource').value; const r=commitRecords(recs, owner, choice, $('#impUpdate')?.checked); logUpload({file:d.label, owner, choice, rows:recs.length, added:r.added, updated:r.updated, types:r.byType}); UI.draft=null; UI.tab='leads'; render(); { const due=DB.contacts.filter(x=>x.source==='Closed lost' && x.status==='Nurture' && x.revisitDate<=todayStr()).length; const inHs=DB.hsList?DB.contacts.filter(x=>x.status==='New' && hsMatch(x)).length:0; toast(`${r.added} added${r.added?` (${typesTxt(r.byType)})`:''}, ${r.updated} updated (duplicates merged)${due?` · ${due} closed-lost follow-ups due now on Today`:''}${inHs?` · ${inHs} already in HubSpot, held out of the queue`:''}`); } } break;
     case 'demo': loadDemo(); break;
     case 'wipe': if (confirm('Erase every contact, company and touch in this browser? Download the tracker first if you need it.') && confirm('Are you sure? This cannot be undone.')){ DB.contacts=[]; DB.companies={}; DB.lastExport=null; save(); render(); } break;
     /* run sheet */
@@ -2765,9 +2832,12 @@ document.addEventListener('change', async e=>{
   if (d.persona){ PERSONAS[d.persona][d.k]=el.value; DB.custom.personas[d.persona]={...(DB.custom.personas[d.persona]||{}), [d.k]:el.value}; save(); render(); return; }
   if (d.filter && d.filter!=='q'){ if (d.filter==='sort') UI.sort=el.value; else UI.f[d.filter]= d.filter==='minOpt' ? +el.value : el.value; render(); return; }
   if (d.map){ UI.draft.map[d.map]=el.value; render(); return; }
+  if (el.id==='impSource' && UI.draft){ UI.draft.source=el.value; return; }
   if (el.id==='bulkLost' && el.value){ let n=0; for (const x of DB.contacts) if (UI.selected.has(x.id)){ const L=x.lost||{}; const rs=x.source==='Closed lost' ? [...lossReasons(L).filter(k=>k!=='other' && k!==el.value), el.value] : [el.value];
       if (x.source!=='Closed lost' && ['Attempting','Connected','Discovery booked','Paused','New'].includes(x.status)){ x.status='Nurture'; x.pauseReason=''; } applyLost(x, {reasons:rs, date:L.date||todayStr()}); x.lost.reasons=rs; x.lost.cat=rs[0]; if (x.status==='Nurture') x.revisitDate=lostFollowUp(x).date; touch(x); n++; }
     save(); render(); toast(`${n} lead${n===1?'':'s'} marked closed-lost: ${LOSS_CATS[el.value]}. Follow-up dates set.`); return; }
+  if (el.id==='bulkSource' && el.value){ let n=0, skip=0; for (const x of DB.contacts) if (UI.selected.has(x.id)){ if (x.source==='Closed lost'){ skip++; continue; } if (x.source!==el.value){ x.source=el.value; touch(x); n++; } }
+    save(); render(); toast(`Lead type set to ${el.value} on ${n} lead${n===1?'':'s'}${skip?`. ${skip} closed-lost lead${skip===1?'':'s'} left as closed lost`:''}`); return; }
   if (el.id==='bulkOwner' && el.value){ for (const x of DB.contacts) if (UI.selected.has(x.id)){ x.owner=el.value; touch(x); } save(); render(); return; }
   if (el.id==='bulkStatus' && el.value){ for (const x of DB.contacts) if (UI.selected.has(x.id)){ x.status=el.value; x.cycle=null; if (el.value==='Discovery booked' && !x.discoveryDate) x.discoveryDate=todayStr(); if (el.value==='Nurture') x.revisitDate=addDays(todayStr(),90); touch(x); } save(); render(); return; }
   if (d.rep){ const r=DB.settings.reps.find(x=>x.id===d.rep); if (r){ r[d.rf]=el.value; save(); renderHeader(); } return; }
