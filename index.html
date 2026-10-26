@@ -504,6 +504,7 @@ const DEFAULT_SETTINGS = {
   goals:{discoveryMonth:12.5},
   spend:{pricePerCheck:45, primeMin:10000, primeMax:150000},
   daysOff:[],
+  spacing:'biz',
   alerts:{on:false, lead:5, sound:true},
   hubspot:{lifecycle:'', status:{}},
   sprint:{on:true, calls:3, emails:3, li:1, days:14, rounds:3},
@@ -801,8 +802,19 @@ function autoCycle(){
   if (ended || started){ save(); UI.cycleNote={ended, started, at:Date.now()}; }
 }
 const queueTrack = c => c.status==='Nurture' && c.source!=='Closed lost' ? 'reengage' : trackFor(c);
-const dueFrom = (start, st) => nextBiz(addDays(start, st.day-1));
-function dueDate(c, st){ const d=dueFrom(c.startDate, st), m=c.defer&&c.defer[st.id]; return m && m>d ? m : d; }
+/* Cadence spacing. Business days (default since 2.1, not in playbook, review): day N is the Nth working day from the start,
+   skipping weekends and days off, so nothing piles up on Mondays. Calendar days (the playbook's 21 days): day N is N-1 calendar
+   days after the start, and a weekend or day off rolls forward. A contact keeps the spacing it started with; contacts already
+   in a cadence before 2.1 stay on calendar days until their next start. */
+const bizCache = {key:'', m:new Map()};
+function addBiz(start, n){
+  const k=(DB.settings.daysOff||[]).join(); if (bizCache.key!==k){ bizCache.key=k; bizCache.m.clear(); }
+  const ck=start+'|'+n; let d=bizCache.m.get(ck); if (d) return d;
+  d=nextBiz(start); for (let i=0;i<n;i++) d=nextBiz(addDays(d,1)); bizCache.m.set(ck,d); return d;
+}
+const spacingOf = c => (c && c.spacing) || (c && c.startDate && c.status!=='New' ? 'cal' : (DB.settings.spacing||'biz'));
+const dueFrom = (start, st, c) => spacingOf(c)==='cal' ? nextBiz(addDays(start, st.day-1)) : addBiz(start, Math.max(0, st.day-1));
+function dueDate(c, st){ const d=dueFrom(c.startDate, st, c), m=c.defer&&c.defer[st.id]; return m && m>d ? m : d; }
 function emailOff(c){ return !!(c.emailBlocked || company(c).emailBlocked || c.emailBad || !c.email); }
 const emailDomain = e => String(e||'').split('@')[1]||'';
 function pendingSteps(c){ const done=new Set((c.touches||[]).map(t=>t.step)); const off=emailOff(c); return steps(c).filter(s=>!done.has(s.id) && !(off && s.ch==='email')).sort((a,b)=>a.day-b.day); }
@@ -890,7 +902,7 @@ function startCadence(c, date, track){
   if (c.track!=='nurture'){ c.cycle=null; c.parked=''; }
   c.cycleUndo=null;
   if ((c.touches||[]).length) c.pastTouches=[...(c.pastTouches||[]), ...c.touches.map(t=>({...t, track:t.track||prevTrack||'cold', archived:true}))];
-  c.status='Attempting'; c.startDate=nextBiz(date||todayStr()); c.touches=[]; c.defer={}; c.liWait=null; c.revisitDate=''; c.pauseReason=''; touch(c);
+  c.status='Attempting'; c.startDate=nextBiz(date||todayStr()); c.spacing=DB.settings.spacing||'biz'; c.touches=[]; c.defer={}; c.liWait=null; c.revisitDate=''; c.pauseReason=''; touch(c);
 }
 function pauseColleagues(c, reason){
   for (const o of DB.contacts){ if (o===c || o.companyKey!==c.companyKey) continue; if (o.status==='Attempting'||o.status==='New'){ o.status='Paused'; o.pauseReason=reason; touch(o); } }
@@ -1151,22 +1163,61 @@ function expectedPerContact(){
 /* Dials your call blocks can hold in a day: each Calls block on the daily schedule × dials per hour. */
 function callBlockCap(){ const r=+DB.settings.rates.call||36, bl=getSchedule().filter(b=>b.type==='calls');
   return {dials:Math.round(bl.reduce((n,b)=>n+Math.max(0,hrs(b.end)-hrs(b.start))*r,0)), blocks:bl}; }
+/* Ramp-up (not in playbook, review): how many new contacts a day keep every day of the next H business days at the dial target.
+   Counts the calls already on the books (cadence steps due, overdue ones on day 1, call-backs, nurture re-contacts, dials already
+   logged today), then finds the same number of starts each day that brings the window's average up to the target. Early on,
+   with nothing in nurture yet, that's about twice the long-run number; it falls as nurture calls arrive.
+   Contacts started today count toward today's starts. Assumes nobody answers, except for the expected live-answer drop-off on new starts. */
+function rampPlan(H=15){
+  const s=DB.settings, target=+s.caps.dials||0, t=todayStr(), days=bizDays(H), first=days[0], last=days[days.length-1], idx=new Map(days.map((d,i)=>[d,i]));
+  const at = d => idx.has(d) ? idx.get(d) : d<first ? 0 : -1;
+  const calls=new Array(H).fill(0), emails=new Array(H).fill(0), lis=new Array(H).fill(0); let startedToday=0;
+  const p=Math.min(0.9, Math.max(0, (+s.connectRate||12)/100));  /* each call may connect and end the cadence */
+  for (const c of DB.contacts){ if (!mine(c)) continue;
+    if (c.status==='Attempting' && c.track!=='nurture' && c.startDate===first && !(c.pastTouches||[]).some(x=>x.date===t) && (c.touches||[]).every(x=>x.date>=t)){ startedToday++; continue; }
+    if (c.status==='Attempting'){ let alive=1; for (const st of pendingSteps(c).map(x=>({x, d:dueDate(c,x)})).sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:0)){ const i=at(st.d);
+      if (i>=0){ if (st.x.ch==='call') calls[i]+=alive; else if (st.x.ch==='email') emails[i]+=alive; else lis[i]+=alive; } if (st.x.ch==='call') alive*=1-p; } }
+    if (c.status==='Nurture' && c.cycle && c.revisitDate && sprintRule()){ const vs=nextBiz(c.revisitDate<first?first:c.revisitDate); for (const st of TRACKS.nurture||[]){ const i=at(dueFrom(vs,st)); if (i<0) continue; if (st.ch==='call') calls[i]++; else if (st.ch==='email' && !emailOff(c)) emails[i]++; } }
+    if (c.status!=='Do not contact') for (const r of pendingRecalls(c)){ const i=at(r.date); if (i>=0) calls[i]++; }
+    if (first===t) for (const x of allTouches(c)) if (x.date===t && x.outcome!=='Skip'){ if (x.ch==='call') calls[0]++; else if (x.ch==='email') emails[0]++; }
+  }
+  /* What one new start on day j adds to each day's calls and emails (a second call landing on the same day slides to the next day, as on Today). */
+  const sprint=sprintCut(TRACKS.cold, STUB('cold')).slice().sort((a,b)=>a.day-b.day);
+  const A=days.map(()=>new Array(H).fill(0)), E=days.map(()=>new Array(H).fill(0)), Li=days.map(()=>new Array(H).fill(0));  /* A[day][startDay] */
+  days.forEach((d,j)=>{ let alive=1; const used=new Set(); for (const st of sprint){ let i=idx.get(dueFrom(d,st)); if (i==null) continue;
+    if (st.ch==='call'){ while (used.has(i)) i++; if (i<H){ used.add(i); A[i][j]+=alive; } alive*=1-p; } else if (st.ch==='email') E[i][j]+=alive; else Li[i][j]+=alive; } });
+  /* Starts per day that keep each day as close to the target as possible (least squares, no negative starts).
+     Spreading by weekday matters: the cadence's day 3 and day 5 roll weekend dates to Monday. */
+  let x=new Array(H).fill(0); { const col=A[0].map((_,j)=>A.reduce((n,r)=>n+r[j],0)); const tot=col.reduce((a,b)=>a+b,0); const flat=tot?Math.max(0,(target*H-calls.reduce((a,b)=>a+b,0))/tot):0; x=x.map(()=>flat); }
+  { let L=0; for (const r of A) for (const v of r) L+=v*v; const eta=L?0.45/L:0, lam=0.15, over=0.25;
+    for (let it=0; it<1500 && eta; it++){ const res=A.map((r,i)=>{ const d=calls[i]+r.reduce((n,v,j)=>n+v*x[j],0)-target; return d>0 ? d*over : d; });  /* a day over target matters less than a day short */
+      x=x.map((xj,j)=>{ let g=0; for (let i=0;i<H;i++) g+=A[i][j]*res[i]; g+=lam*(2*xj-(x[j-1]??xj)-(x[j+1]??xj)); return Math.max(0, xj-eta*2*g); }); } }
+  const callsByDay=calls.map((c,i)=>c+A[i].reduce((n,v,j)=>n+v*x[j],0)), emailsByDay=emails.map((e,i)=>e+E[i].reduce((n,v,j)=>n+v*x[j],0)), liByDay=lis.map((e,i)=>e+Li[i].reduce((n,v,j)=>n+v*x[j],0));
+  const W=Math.min(10,H), booked=calls.slice(0,W).reduce((a,b)=>a+b,0), avg=x.slice(0,5).reduce((a,b)=>a+b,0)/5;
+  const ready=queueModel().readyCount, today=Math.max(0, Math.min(Math.round(x[0])-startedToday, ready));
+  const startsBy=new Map(days.map((d,j)=>[d, Math.round(x[j])]));
+  return {H:W, days, target, booked, bookedDay:booked/W, starts:x, startsBy, perDay:avg, startsDay:Math.round(avg), startsToday:Math.round(x[0]), startedToday, today, ready,
+    emailsDay:emailsByDay.slice(0,W).reduce((a,b)=>a+b,0)/W, liDay:liByDay.slice(0,W).reduce((a,b)=>a+b,0)/W, callsByDay, emailsByDay, liByDay};
+}
 function recommend(dueCounts){
   const s=DB.settings, caps=s.caps, e=expectedPerContact();
   const steady = Math.max(1, Math.round(caps.dials / (e.call||1)));
-  const emailsDay=steady*e.email, liDay=steady*e.li, d=dueCounts||{call:0,email:0,linkedin:0};
-  return {steady, e, callsPer:e.call, emailsDay, liDay, emailOver:emailsDay>caps.emails+0.5, liOver:liDay>caps.linkedin+0.5, today:Math.max(0, Math.min(steady, caps.dials-d.call))};
+  const ramp = DB.settings.currentRep==='all' ? null : rampPlan();
+  const emailsDay = ramp ? ramp.emailsDay : steady*e.email, liDay=steady*e.li, d=dueCounts||{call:0,email:0,linkedin:0};
+  return {steady, e, ramp, callsPer:e.call, emailsDay, steadyEmails:steady*e.email, liDay, emailOver:emailsDay>caps.emails+0.5, liOver:liDay>caps.linkedin+0.5,
+    perDay: ramp ? ramp.startsDay : steady, startsBy: ramp ? ramp.startsBy : null, today: ramp ? ramp.today : Math.max(0, Math.min(steady, caps.dials-d.call))};
 }
 
 /* ---------------- Run sheet planning ---------------- */
 function bizDays(n){ const out=[]; let d=nextBiz(todayStr()); while(out.length<n){ out.push(d); d=nextBiz(addDays(d,1)); } return out; }
-function plannedStarts(days, perDay){
+function plannedStarts(days, perDay, by){
   const virt=new Map(), cur=DB.settings.currentRep;
-  if (cur==='all' || !(perDay>0)) return virt;
+  if (cur==='all' || !(perDay>0 || by)) return virt;
   const {active, waiting, max} = queueModel(); const act={...active}, pool=waiting.slice(), t=todayStr();
-  const startedToday = DB.contacts.filter(c=>mine(c) && c.startDate===t && c.status!=='New').length;
+  const startedToday = DB.contacts.filter(c=>mine(c) && c.startDate===t && c.status!=='New' && c.track!=='nurture').length;
   for (const d of days){
-    let room = d===t ? Math.max(0, perDay-startedToday) : perDay;
+    const n = by && by.has(d) ? by.get(d) : perDay;
+    let room = d===t ? Math.max(0, n-startedToday) : n;
     for (let j=0; j<pool.length && room>0;){ const c=pool[j]; if ((act[c.companyKey]||0) >= max){ j++; continue; } virt.set(c.id, d); act[c.companyKey]=(act[c.companyKey]||0)+1; pool.splice(j,1); room--; }
   }
   return virt;
@@ -1219,8 +1270,9 @@ function planDay(D, virt, first){
 }
 function planRange(){
   const days=bizDays(UI.rs.nDays);
-  const per = UI.rs.planned ? (UI.rs.perDay ?? recommend().steady) : 0;
-  const virt = plannedStarts(days, per);
+  const rec = UI.rs.planned && UI.rs.perDay==null ? recommend() : null;
+  const per = UI.rs.planned ? (UI.rs.perDay ?? rec.perDay) : 0;
+  const virt = plannedStarts(days, per, rec ? rec.startsBy : null);
   return {days, per, virt, plans: days.map((d,i)=>planDay(d, virt, i===0))};
 }
 function blockSummary(b, plan){
@@ -1392,7 +1444,7 @@ function buildTrackerWorkbook(){
     return {'PT_ID':c.id,'Owner':repName(c.owner),'Owner ID':c.owner,'Status':c.status,'Track':c.track,'Source':c.source,'Name':c.name,'First':c.first,'Last':c.last,'Title':c.title,
       'Persona':PERSONAS[persona(c)].label,'Persona Override':c.personaOverride,'Company':co.name,'Company Key':c.companyKey,'State':co.state,'Employees':co.employees,
       'Est Annual Hires':co.annualHires,'Optimal Score':optimal(co),'Email':c.email,'Direct Phone':c.directPhone,'Business Phone':c.businessPhone,'LinkedIn':c.linkedin,
-      'LinkedIn Known':yn(c.liKnown),'Time Zone':z.zone,'TZ Source':z.src,'TZ Override':c.tzOverride,'Cadence Start':c.startDate,'Next Step':n?n.step.label:'',
+      'LinkedIn Known':yn(c.liKnown),'Time Zone':z.zone,'TZ Source':z.src,'TZ Override':c.tzOverride,'Cadence Start':c.startDate,'Cadence Spacing':c.startDate?spacingOf(c):'','Next Step':n?n.step.label:'',
       'Next Due':n?n.due:'','Last Touch Date':lt?lt.date:'','Last Outcome':lt?lt.outcome:'','Touches':(c.touches||[]).length,'Revisit Date':c.revisitDate,
       'Discovery Date':c.discoveryDate||'','Pause Reason':c.pauseReason,'Phone Bad':yn(c.phoneBad),'Email Bad':yn(c.emailBad),'Last Contacted (import)':c.lastContacted,
       'Prior Status (import)':c.priorStatus,'Notes':c.notes,'Email Blocked':yn(c.emailBlocked),
@@ -1423,7 +1475,7 @@ function readConfig(wb){
 }
 /* Shared = team playbook (scripts, cadence, personas, windows, scoring). Personal = your schedule, caps, rates.
    A teammate's tracker only brings the shared part; your own backup brings both. Your rep name and phone never change. */
-const SHARED_SET = ['windows','mid','address','optOut','maxPerCompany','spend','winback','hubspot','sprint'], PERSONAL_SET = ['caps','rates','connectRate','goals','daysOff','alerts','homeRep'];
+const SHARED_SET = ['windows','mid','address','optOut','maxPerCompany','spend','winback','hubspot','sprint','spacing'], PERSONAL_SET = ['caps','rates','connectRate','goals','daysOff','alerts','homeRep'];
 const sharedPart = (custom, settings) => JSON.stringify({sc:custom?.scripts||{}, tr:custom?.tracks||{}, pe:custom?.personas||{}, st:SHARED_SET.map(k=>settings?.[k])});
 const isPlaceholderRep = n => !String(n||'').trim() || /^rep \d+$/i.test(String(n).trim());
 function mergeReps(incoming){
@@ -1482,7 +1534,7 @@ function restoreTracker(wb){
     const inc = {id, owner:resolveOwner(r['Owner'], r['Owner ID']), status:STATUSES.includes(r['Status'])?r['Status']:'New', track:r['Track']||'', source:r['Source']||'ZoomInfo',
       name:r['Name'], first:r['First'], last:r['Last'], title:r['Title'], personaOverride:PERSONAS[r['Persona Override']]?r['Persona Override']:'', companyKey:r['Company Key']||coKey(r['Company']),
       email:String(r['Email']||'').toLowerCase(), directPhone:r['Direct Phone'], businessPhone:r['Business Phone'], linkedin:r['LinkedIn'], liKnown:fromYn(r['LinkedIn Known'])||!!r['LinkedIn'],
-      tzOverride:ZONES[r['TZ Override']]?r['TZ Override']:'', startDate:toYmd(r['Cadence Start']), revisitDate:toYmd(r['Revisit Date']),
+      tzOverride:ZONES[r['TZ Override']]?r['TZ Override']:'', startDate:toYmd(r['Cadence Start']), spacing:['biz','cal'].includes(r['Cadence Spacing'])?r['Cadence Spacing']:'', revisitDate:toYmd(r['Revisit Date']),
       discoveryDate:r['Discovery Date']||'', pauseReason:r['Pause Reason']||'', phoneBad:fromYn(r['Phone Bad']), emailBad:fromYn(r['Email Bad']), lastContacted:r['Last Contacted (import)']||'',
       priorStatus:r['Prior Status (import)']||'', notes:r['Notes']||'', touches:(touches[id]||[]).filter(t=>!t.archived), pastTouches:(touches[id]||[]).filter(t=>t.archived).map(({archived,...t})=>({...t, archived:true})), emailBlocked:fromYn(r['Email Blocked']),
       recalls:safeJson(r['Call-backs (data)'],[]), bounces:safeJson(r['Bounces (data)'],[]), alsoOn:r['Both Reps Had It']||'', referredBy:r['Referred By']||'', liState:r['LinkedIn Status']||'', liSince:r['LinkedIn Since']||'', bestTime:r['Best Time']||'', hsOverride:r['Work Despite HubSpot']==='Yes', hsExported:r['HubSpot Exported']||'', noLi:r['LinkedIn Status']==='No profile', ...(r['LinkedIn Waiting (data)']?{liWait:(()=>{ try { return JSON.parse(r['LinkedIn Waiting (data)']); } catch(e){ return null; } })()}:{}), unqualReason:r['Unqualified Reason']||'', ...(()=>{ try { const x=r['Nurture (data)']?JSON.parse(r['Nurture (data)']):null; return x?{cycle:x.cycle||null, parked:x.parked||''}:{cycle:null, parked:''}; } catch(e){ return {cycle:null, parked:''}; } })(), createdAt:(r['Created At']&&Date.parse(r['Created At']))||Date.now(), ...(r['Moved Steps (data)']?{defer:(()=>{ try { return JSON.parse(r['Moved Steps (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Closed-lost (data)']?{lost:(()=>{ try { return JSON.parse(r['Closed-lost (data)']); } catch(e){ return undefined; } })()}:{}), updatedAt:Date.parse(r['Updated At'])||0};
@@ -1753,7 +1805,7 @@ function renderToday(){
   const cap=callBlockCap(), mixTxt=Object.entries(q.mix).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${v} ${k}`).join(' · ');
   h += `<div class="card qcard"><div class="qrow"><div><b>Start queue</b> <span class="muted">${q.waiting.length} waiting${q.waiting.length&&mixTxt?` <span class="small">(${esc(mixTxt)})</span>`:''}${q.waiting.length-q.readyCount>0?` (${q.waiting.length-q.readyCount} held: company has ${q.max} active)`:''}${q.inHs?` · <span class="tag bad small" title="Already in HubSpot, so held out of the queue">${q.inHs} already in HubSpot</span>`:''} · room today</span> <b>${rec.today}</b>${rec.emailOver?` <span class="tag warn small" title="Trim email steps on the Cadence tab">over email cap</span>`:''}</div>
       <div class="qbtns">${all?'<span class="small muted">Pick one rep to start contacts</span>':`<input type="number" id="startN" min="0" max="50" value="${rec.today}" style="width:64px"><button class="btn primary sm" data-act="startTop" ${q.readyCount&&!weekend?'':'disabled'}>Start top contacts</button>`}<button class="btn sm" data-act="addLead">+ Add lead</button><button class="btn sm" data-act="tab" data-tab="run">Run sheet</button></div></div>
-    <div class="qrow2"><div class="zonestrip">${strip}</div><details class="small muted"><summary>Why ${rec.today}?</summary>${m.calls.length?`<b>${m.calls.length} calls</b> are already due today (follow-ups${DB.contacts.some(c=>mine(c)&&c.track==='nurture'&&c.status==='Attempting')?' and nurture re-contacts':''} come first), so there's room for <b>${rec.today}</b> new starts under your ${caps.dials}-dial target. `:''}To average <b>${caps.dials} cadence dials a day</b>, start about <b>${rec.steady} new contacts a day</b>. ${rec.e.sprint&&sprintRule()?`Each gets about ${rec.e.sprint.call.toFixed(1)} calls in the sprint and ${rec.e.nurture.call.toFixed(1)} in nurture re-contacts on average, because some answer early.`:`Each gets about ${rec.callsPer.toFixed(1)} calls on average, because some answer early.`} That also means about ${Math.round(rec.emailsDay)} emails and ${Math.round(rec.liDay)} LinkedIn touches a day${rec.emailOver?`, over your ${caps.emails}-email cap: trim email steps on the Cadence tab`:''}.${lr.n>=30?` Your live-answer rate so far: ${(lr.rate*100).toFixed(0)}% on ${lr.n} dials.`:''}<br>Your call blocks (${cap.blocks.map(b=>esc(b.label)).join(', ')||'none'}) hold about <b>${cap.dials} dials</b> a day at ${DB.settings.rates.call} an hour.${cap.dials>caps.dials?` To fill them, raise your dial target: <button class="btn sm" data-act="useCallCap" data-n="${cap.dials}">Use ${cap.dials} as my dial target</button> (not in playbook, review: the playbook's block is 30 dials).`:''}</details></div></div>`;
+    <div class="qrow2"><div class="zonestrip">${strip}</div><details class="small muted"><summary>Why ${rec.today}?</summary>${rec.ramp?(()=>{ const R=rec.ramp; return `<b>Ramp-up</b> <span class="tag warn small">not in playbook, review</span>: to keep <b>${caps.dials} dials a day</b> over the next ${R.H} business days, the calls already on the books (follow-ups, call-backs${DB.contacts.some(c=>mine(c)&&c.cycle)?', nurture re-contacts':''}${m.t===R.days[0]?' and dials you\'ve logged today':''}) come to about <b>${Math.round(R.bookedDay)} a day</b>, so start <b>${R.startsToday} new contacts today</b> and about ${R.startsDay} a day over the next week (${R.days.slice(0,5).map(d=>`${parseYmd(d).toLocaleDateString('en-US',{weekday:'short'})} ${R.startsBy.get(d)}`).join(', ')}). ${(DB.settings.spacing||'biz')==='cal'?'Days 3 and 5 of the cadence roll weekend dates to Monday, so the plan starts more early in the week and fewer later to keep each day even':'Cadence days count as business days, so new contacts spread their calls evenly across the week'}${R.startedToday?`. You've started ${R.startedToday} today, so <b>${rec.today} more</b>`:''}${R.ready<R.startsToday-R.startedToday?`. Only <b>${R.ready}</b> are ready in the queue (the rest are held by the ${q.max}-per-company limit or the queue is short)`:''}. Each new contact gives about ${rec.e.sprint?rec.e.sprint.call.toFixed(1):rec.callsPer.toFixed(1)} calls in its first week, because some answer early. Once nurture re-contacts are running, about <b>${rec.steady} a day</b> holds the target.<br>Emails at this pace: about <b>${Math.round(R.emailsDay)} a day</b>, and LinkedIn about <b>${Math.round(R.liDay)} a day</b>${R.liDay>caps.linkedin+0.5?` (cap ${caps.linkedin})`:''}, over the next ${R.H} business days${R.emailsDay>caps.emails+0.5?`, over your ${caps.emails}-email cap: the cadence pairs every call step with an email, so more dials mean more emails. Cut email steps on the Cadence tab, or agree a higher cap with your manager`:''}.`; })():`To average <b>${caps.dials} cadence dials a day</b>, start about <b>${rec.steady} new contacts a day</b>. Pick one rep under Working as to see the ramp-up plan.`}${lr.n>=30?` Your live-answer rate so far: ${(lr.rate*100).toFixed(0)}% on ${lr.n} dials.`:''}<br>Your call blocks (${cap.blocks.map(b=>esc(b.label)).join(', ')||'none'}) hold about <b>${cap.dials} dials</b> a day at ${DB.settings.rates.call} an hour.${cap.dials>caps.dials?` To fill them, raise your dial target: <button class="btn sm" data-act="useCallCap" data-n="${cap.dials}">Use ${cap.dials} as my dial target</button> (not in playbook, review: the playbook's block is 30 dials).`:''}</details></div></div>`;
   if (m.recalls.length){ h += `<h2 id="sec-recalls">Scheduled call-backs <span class="count">${m.recalls.length}</span>${DB.settings.alerts?.on?'<span class="tag good small" title="Alerts before each call-back">🔔 alerts on</span>':'<button class="btn sm" data-act="alertsOn">🔔 Alert me before call-backs</button>'}</h2><p class="small muted" style="margin-top:-4px">Fixed times: these come before everything else. No answer sets one retry for tomorrow at the same time (up to 3 tries).</p>` + m.recalls.map(x=>taskRecall(x,all)).join(''); }
   if (m.connected.length){ h += `<h2 id="sec-connected">Connected: set the next step <span class="count">${m.connected.length}</span></h2>` + m.connected.map(c=>`<div class="task"><div>${who(c,all)}</div><div class="small muted">${lastTouch(c)?`${esc(lastTouch(c).outcome)} on ${prettyDate(lastTouch(c).date)}`:''}</div><div class="outs">
     ${pendingRecalls(c)[0]?`<span class="tag good">Call-back ${prettyDate(pendingRecalls(c)[0].date)} ${fmtHour(hrs(pendingRecalls(c)[0].time))}</span>`:`<button class="btn sm" data-act="newCallback" data-id="${c.id}">Schedule call-back</button>`}<button class="btn sm good" data-act="setStatus" data-id="${c.id}" data-status="Discovery booked">Discovery booked</button><button class="btn sm" data-act="setStatus" data-id="${c.id}" data-status="Nurture">Nurture</button><button class="btn sm bad" data-act="setStatus" data-id="${c.id}" data-status="Unqualified">Unqualified</button></div></div>`).join(''); }
@@ -2140,7 +2192,10 @@ function optList(obj, sel, extra=[]){ return extra.map(([v,l])=>`<option value="
 function stepVm(st){ return st.vm!==undefined ? st.vm : (st.opener==='persona'||st.opener==='d5') ? 'persona' : ''; }
 function renderCadence(){
   const n=touchesPerContact();
-  let h = `<div class="card"><b>How editing works</b><p class="small muted" style="margin:6px 0 0">Changes save instantly and apply to everyone already in the cadence. Logged touches stay logged; a step you remove disappears from future days. "Reset" puts back the playbook version. Edits travel with your tracker file, so your teammate can load them.</p></div>`;
+  const sp=DB.settings.spacing||'biz', legacy=DB.contacts.filter(c=>mine(c) && c.status==='Attempting' && spacingOf(c)!==sp).length;
+  let h = `<div class="card" style="margin-bottom:10px"><b>How cadence days are counted</b> <select data-spacing="1"><option value="biz" ${sp==='biz'?'selected':''}>Business days, Monday to Friday</option><option value="cal" ${sp==='cal'?'selected':''}>Calendar days (the playbook's 21 days)</option></select>
+    <p class="small muted" style="margin:6px 0 0">${sp==='biz'?'Not in playbook, review. Day 3 is the third working day from the start, skipping weekends and days off, so calls, emails and LinkedIn spread evenly over the week instead of piling up on Mondays. The cold sprint takes about 9 calendar days and the full 21-day cadence about a month.':'Day 3 is two calendar days after the start; a weekend or day off rolls the touch to the next working day, which piles touches up on Mondays.'} A change applies to contacts started from then on; each contact keeps the spacing it started with.${legacy?` ${legacy} of your contacts in a cadence still use ${sp==='biz'?'calendar':'business'} days.`:''} Shared with your teammate through the tracker.</p></div>
+  <div class="card"><b>How editing works</b><p class="small muted" style="margin:6px 0 0">Changes save instantly and apply to everyone already in the cadence. Logged touches stay logged; a step you remove disappears from future days. "Reset" puts back the playbook version. Edits travel with your tracker file, so your teammate can load them.</p></div>`;
   h += `<h2>Persona openers</h2><div class="tablewrap"><table class="edit"><thead><tr><th>Persona</th><th>Call 1 opener</th><th>Call 1 voicemail</th><th>Call 3 opener</th><th>Call 3 voicemail</th><th>Email 1</th></tr></thead><tbody>`;
   for (const [k,p] of Object.entries(PERSONAS)) h += `<tr><td><b>${esc(p.label)}</b></td>${['d1','vm1','d5','vm5','em1'].map(f=>`<td><select data-persona="${k}" data-k="${f}">${optList(f==='em1'?EMAILS:f.startsWith('vm')?VMS:OPENERS, p[f])}</select></td>`).join('')}</tr>`;
   h += `</tbody></table></div><p class="small muted">A company trigger still overrides call 1: new HR leader → opener G; hiring surge or new state → opener H; both with VM4. <button class="btn sm" data-act="resetPersonas">Reset personas</button></p>`;
@@ -2150,7 +2205,7 @@ function renderCadence(){
     if (t==='cold') h += `<p class="small muted" style="margin-top:-4px">Per contact: ${n.call} calls, ${n.email} emails, ${n.linkedin} LinkedIn touches${R?' in the sprint, plus the nurture rounds':''}. This sets how many new contacts a day your caps can carry.</p>`;
     if (R && t!=='nurture' && kept.size<steps_.length) h += `<p class="small muted" style="margin-top:-4px">Sprint exit (Settings → Sprint and nurture; not in playbook, review): contacts move to nurture after ${R.calls} calls, ${R.emails} emails and ${R.li} LinkedIn message${+R.li===1?'':'s'}, so steps marked <span class="tag">after the sprint</span> only run if a step is skipped or the sprint exit is off.</p>`;
     if (t==='nurture') h += `<p class="small muted" style="margin-top:-4px">${R?`Every ${R.days} days after the sprint, up to ${R.rounds} round${+R.rounds===1?'':'s'}, then the contact is parked with a 90-day revisit. Starts on its own: no need to click anything.`:'Not used while the sprint exit is off (Settings → Sprint and nurture).'}</p>`;
-    h += `<div class="tablewrap"><table class="edit"><thead><tr><th>Day</th><th>Channel</th><th>Label (what you see)</th><th>Script</th><th></th></tr></thead><tbody>`;
+    h += `<div class="tablewrap"><table class="edit"><thead><tr><th>${sp==='cal'?'Day':'Business day'}</th><th>Channel</th><th>Label (what you see)</th><th>Script</th><th></th></tr></thead><tbody>`;
     steps_.forEach((st,i)=>{
       let script='';
       if (st.ch==='call') script = `<div style="display:flex;gap:4px"><select data-trk="${t}" data-i="${i}" data-k="opener">${optList(OPENERS, st.opener, [['persona','By persona: call 1 opener'],['d5','By persona: call 3 opener'],['loss','By loss reason (win-back)']])}</select><select data-trk="${t}" data-i="${i}" data-k="vm">${optList(VMS, stepVm(st), [['persona','Voicemail by persona'],['','No voicemail']])}</select></div>`;
@@ -2229,7 +2284,7 @@ function renderSettingsBody(){
     <label class="chk"><input type="checkbox" data-sprint="on" ${s.sprint.on?'checked':''}> Use the sprint exit and nurture rounds</label>
     <div class="fields" style="margin-top:8px"><label>Calls before nurture<input type="number" min="0" max="10" data-sprint="calls" value="${s.sprint.calls}"></label><label>Emails before nurture<input type="number" min="0" max="10" data-sprint="emails" value="${s.sprint.emails}"></label><label>LinkedIn messages before nurture<input type="number" min="0" max="5" data-sprint="li" value="${s.sprint.li}"></label>
     <label>Days between nurture re-contacts<input type="number" min="3" max="90" data-sprint="days" value="${s.sprint.days}"></label><label>Nurture rounds before parking<input type="number" min="0" max="10" data-sprint="rounds" value="${s.sprint.rounds}"></label></div>
-    <p class="small muted">Cold sprint now: ${(()=>{ const n=touchesPerContact(); return `${n.call} calls, ${n.email} emails, ${n.linkedin} LinkedIn touches, ending on day ${Math.max(0,...sprintCut(TRACKS.cold, STUB('cold')).map(x=>x.day))}`; })()}. Edit the nurture call and email on the Cadence tab.</p></div>
+    <p class="small muted">Cold sprint now: ${(()=>{ const n=touchesPerContact(); return `${n.call} calls, ${n.email} emails, ${n.linkedin} LinkedIn touches, ending on ${(DB.settings.spacing||'biz')==='cal'?'':'business '}day ${Math.max(0,...sprintCut(TRACKS.cold, STUB('cold')).map(x=>x.day))}`; })()}. Edit the nurture call and email on the Cadence tab.</p></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Best windows (prospect's local time)</h3><p class="small muted">Ranges like <code>8-11, 16-17</code> or <code>8:30-10:30, 2pm-4pm</code>. "Best" ranks first; "OK" is the fallback.</p>
     <div class="fields">${winInp('call','Calls: best')}${winInp('callOk','Calls: OK')}${winInp('email','Emails: best')}${winInp('emailOk','Emails: OK')}${winInp('linkedin','LinkedIn: best')}${winInp('linkedinOk','LinkedIn: OK')}</div></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Call-back alerts</h3><p class="small muted" style="margin-top:0">A notification a few minutes before each call-back, with their name, company, phone and your note. It works while this app is open in a browser tab (it can be in the background). ${'Notification' in window ? (Notification.permission==='denied' ? '<b>Notifications are blocked for this site in your browser settings</b>, so you\'ll get the in-app alert and sound only.' : '') : 'This browser has no notifications, so you\'ll get the in-app alert and sound only.'}</p>
@@ -2350,7 +2405,7 @@ function kpiAdded(list, from, to){
   const nReps = DB.settings.currentRep==='all' ? DB.settings.reps.length : 1, e=expectedPerContact(), wkDials=(+DB.settings.caps.dials||0)*5*nReps;
   const needLong=wkDials/(e.call||1), needRamp=wkDials/((e.sprint&&e.sprint.call)||e.call||1);
   const last4=list.filter(c=>inR(c,addDays(t,-27),t)).length/4;
-  const q=queueModel(), waiting=q.waiting.filter(c=>list.includes(c)), waitCall=waiting.filter(callable).length, perDay=recommend().steady*nReps;
+  const q=queueModel(), waiting=q.waiting.filter(c=>list.includes(c)), waitCall=waiting.filter(callable).length, perDay=recommend().perDay*nReps;
   return {total:stat(period), byType, weeks, wkTypes, need:{wkDials, needLong, needRamp, perLead:e.call, last4, waiting:waiting.length, waitCall, perDay, days: perDay ? waitCall/perDay : 0, nReps}};
 }
 function kpiModel(){
@@ -2842,6 +2897,7 @@ document.addEventListener('change', async e=>{
   if (el.id==='bulkStatus' && el.value){ for (const x of DB.contacts) if (UI.selected.has(x.id)){ x.status=el.value; x.cycle=null; if (el.value==='Discovery booked' && !x.discoveryDate) x.discoveryDate=todayStr(); if (el.value==='Nurture') x.revisitDate=addDays(todayStr(),90); touch(x); } save(); render(); return; }
   if (d.rep){ const r=DB.settings.reps.find(x=>x.id===d.rep); if (r){ r[d.rf]=el.value; save(); renderHeader(); } return; }
   if (d.cap){ DB.settings.caps[d.cap]=Math.max(0,+el.value||0); save(); return; }
+  if (d.spacing){ DB.settings.spacing = el.value==='cal' ? 'cal' : 'biz'; save(); render(); toast(`Cadence days now count as ${DB.settings.spacing==='cal'?'calendar':'business'} days for new starts`); return; }
   if (d.sprint){ const S=DB.settings.sprint; S[d.sprint] = d.sprint==='on' ? el.checked : Math.max(0, Math.round(+el.value||0)); if (d.sprint==='days') S.days=Math.max(1,S.days); save(); render(); return; }
   if (d.spend){ DB.settings.spend[d.spend]=Math.max(0,+el.value||0); save(); render(); return; }
   if (d.lost){ const c=DB.contacts.find(x=>x.id===UI.drawer); if (c){ const L=c.lost=c.lost||{}; L[d.lost]=el.value;
