@@ -522,6 +522,7 @@ const DEFAULT_SETTINGS = {
   daysOff:[],
   spacing:'biz',
   sigOn:false,
+  autoRoll:true,
   alerts:{on:false, lead:5, sound:true},
   hubspot:{lifecycle:'', status:{}},
   sprint:{on:true, calls:3, emails:3, li:1, days:14, rounds:3},
@@ -806,7 +807,25 @@ function finishCadence(c, date, at){
 /* Runs on every render, only for the rep this browser belongs to (set on the first-run screen), so a teammate's
    leads are never changed here, even with Working as → Both reps or their name picked:
    closes sprints that are already complete and starts nurture re-contacts that are due. */
+/* Unmarked tasks roll to the next working day by themselves (Settings → Days off; on by default). Only the missed task moves:
+   later steps keep their dates. The card shows "moved from [day]"; "I was off" on Today puts them back and shifts the cadence instead.
+   Only the browser owner's leads, as with nurture. Call-backs keep their promised time. */
+function autoRoll(){
+  const me=DB.settings.homeRep || (DB.settings.currentRep!=='all' ? DB.settings.currentRep : ''); if (!me || DB.settings.autoRoll===false) return;
+  const T=nextBiz(todayStr()); let n=0;
+  for (const c of DB.contacts){ if (c.owner!==me || c.status!=='Attempting') continue; let k=0;
+    for (const st of pendingSteps(c)){ const d=dueDate(c,st); if (d>=T) continue;
+      c.rolled ||= {}; if (!c.rolled[st.id]) c.rolled[st.id]={from:d, prev:(c.defer||{})[st.id]||null};
+      (c.defer ||= {})[st.id]=T; k++; }
+    if (k){ touch(c); n+=k; } }
+  if (n){ save(); }
+}
+function unroll(D){ /* "I was off D": put tasks rolled from D back, so the day-off shift moves the whole cadence */
+  let n=0; for (const c of DB.contacts){ if (!mine(c) || !c.rolled) continue;
+    for (const [id, r] of Object.entries(c.rolled)) if (r.from===D){ if (r.prev) c.defer[id]=r.prev; else if (c.defer) delete c.defer[id]; delete c.rolled[id]; n++; } }
+  return n; }
 function autoCycle(){
+  autoRoll();
   const R=sprintRule(), me=DB.settings.homeRep || (DB.settings.currentRep!=='all' ? DB.settings.currentRep : ''); if (!R || !me) return;
   const t=todayStr(); let ended=0, started=0;
   for (const c of DB.contacts){
@@ -852,7 +871,7 @@ function shiftForDayOff(D){
   if (!(DB.settings.daysOff||[]).includes(D)) DB.settings.daysOff=[...(DB.settings.daysOff||[]), D].sort();
   let steps_=0;
   for (const {c, pend, rec} of before){
-    for (const {st, due} of pend){ const nd=nextBiz(addDays(due,1)); if (nd>dueDate(c,st)){ (c.defer ||= {})[st.id]=nd; steps_++; } }
+    for (const {st, due} of pend){ const nd=nextBiz(addDays(due,1)); if (nd>dueDate(c,st)) (c.defer ||= {})[st.id]=nd; if (dueDate(c,st)!==due) steps_++; }  /* business-day cadences move by themselves once the day is off */
     for (const r of rec){ r.date=nextBiz(addDays(D,1)); r.their=repToTheirLabel(c, r.time, r.date); }
     touch(c); }
   UI.shiftUndo={snap, at:Date.now(), D}; save();
@@ -921,7 +940,7 @@ function startCadence(c, date, track){
   if (c.track!=='nurture'){ c.cycle=null; c.parked=''; }
   c.cycleUndo=null;
   if ((c.touches||[]).length) c.pastTouches=[...(c.pastTouches||[]), ...c.touches.map(t=>({...t, track:t.track||prevTrack||'cold', archived:true}))];
-  c.status='Attempting'; c.startDate=nextBiz(date||todayStr()); c.spacing=DB.settings.spacing||'biz'; c.touches=[]; c.defer={}; c.liWait=null; c.revisitDate=''; c.pauseReason=''; touch(c);
+  c.status='Attempting'; c.startDate=nextBiz(date||todayStr()); c.spacing=DB.settings.spacing||'biz'; c.touches=[]; c.defer={}; c.rolled={}; c.liWait=null; c.revisitDate=''; c.pauseReason=''; touch(c);
 }
 function pauseColleagues(c, reason){
   for (const o of DB.contacts){ if (o===c || o.companyKey!==c.companyKey) continue; if (o.status==='Attempting'||o.status==='New'){ o.status='Paused'; o.pauseReason=reason; touch(o); } }
@@ -936,6 +955,7 @@ function applyOutcome(c, stepId, outcome, date, quiet){
   /* LinkedIn messages are numbered (1st message, follow-up 1, 2...) and wait on "LinkedIn: waiting for response" until you log the answer. */
   const isMsg = st.ch==='linkedin' && ['Message sent','Waiting for response'].includes(outcome) && !String(st.li||'').startsWith('connect');
   const msgNo = isMsg ? liMsgCount(c)+1 : 0;
+  if (c.rolled && c.rolled[stepId]) delete c.rolled[stepId];
   c.touches.push({step:stepId, ch:st.ch, label:st.label+(msgNo?` · ${msgNo===1?'1st message':'follow-up '+(msgNo-1)}`:''), date, outcome, ...(msgNo?{msgNo}:{}), at:new Date().toISOString()});
   let msg='';
   if (isMsg) c.liWait={step:stepId, label:`${msgNo===1?'1st message':'Follow-up '+(msgNo-1)}: ${st.label}`, date};
@@ -1501,7 +1521,7 @@ function buildTrackerWorkbook(){
       'Discovery Date':c.discoveryDate||'','Pause Reason':c.pauseReason,'Phone Bad':yn(c.phoneBad),'Email Bad':yn(c.emailBad),'Last Contacted (import)':c.lastContacted,
       'Prior Status (import)':c.priorStatus,'Notes':c.notes,'Email Blocked':yn(c.emailBlocked),
       'Next Call-back':(()=>{ const r=pendingRecalls(c)[0]; return r?`${r.date} ${fmtHour(hrs(r.time))} (their ${r.their})`:''; })(),
-      'Call-backs (data)':JSON.stringify(c.recalls||[]),'Bounces (data)':JSON.stringify(c.bounces||[]),'Both Reps Had It':c.alsoOn||'','Referred By':c.referredBy||'','LinkedIn Status':c.liState||'','LinkedIn Since':c.liSince||'','Best Time':c.bestTime||'','Work Despite HubSpot':c.hsOverride?'Yes':'','HubSpot Exported':c.hsExported||'','LinkedIn Waiting (data)':c.liWait?JSON.stringify(c.liWait):'','Unqualified Reason':c.unqualReason||'','Left (data)':c.left?JSON.stringify(c.left):'','Replaces':c.replaces||'','Nurture (data)':(c.cycle||c.parked)?JSON.stringify({cycle:c.cycle||null, parked:c.parked||''}):'','Created At':c.createdAt?new Date(c.createdAt).toISOString():'','Moved Steps (data)':c.defer&&Object.keys(c.defer).length?JSON.stringify(c.defer):'','Loss Reason':c.lost?LOSS_CATS[c.lost.cat||'other']:'','Lost On':c.lost?.date||'','Quoted Amount':c.lost?.amount||'','Lost To':c.lost?.competitor||'','Closed-lost (data)':c.lost?JSON.stringify(c.lost):'','Updated At':new Date(c.updatedAt||Date.now()).toISOString()}; });
+      'Call-backs (data)':JSON.stringify(c.recalls||[]),'Bounces (data)':JSON.stringify(c.bounces||[]),'Both Reps Had It':c.alsoOn||'','Referred By':c.referredBy||'','LinkedIn Status':c.liState||'','LinkedIn Since':c.liSince||'','Best Time':c.bestTime||'','Work Despite HubSpot':c.hsOverride?'Yes':'','HubSpot Exported':c.hsExported||'','LinkedIn Waiting (data)':c.liWait?JSON.stringify(c.liWait):'','Unqualified Reason':c.unqualReason||'','Left (data)':c.left?JSON.stringify(c.left):'','Replaces':c.replaces||'','Nurture (data)':(c.cycle||c.parked)?JSON.stringify({cycle:c.cycle||null, parked:c.parked||''}):'','Created At':c.createdAt?new Date(c.createdAt).toISOString():'','Moved Steps (data)':c.defer&&Object.keys(c.defer).length?JSON.stringify(c.defer):'','Rolled (data)':c.rolled&&Object.keys(c.rolled).length?JSON.stringify(c.rolled):'','Loss Reason':c.lost?LOSS_CATS[c.lost.cat||'other']:'','Lost On':c.lost?.date||'','Quoted Amount':c.lost?.amount||'','Lost To':c.lost?.competitor||'','Closed-lost (data)':c.lost?JSON.stringify(c.lost):'','Updated At':new Date(c.updatedAt||Date.now()).toISOString()}; });
   const T = []; for (const c of DB.contacts) for (const t of allTouches(c)) T.push({'PT_ID':c.id,'Contact':c.name,'Company':company(c).name,'Date':t.date,'Step ID':t.step,'Channel':CH_LABEL[t.ch]||t.ch,'Step':t.label,'Outcome':t.outcome,'Logged At':t.at,'Logged From':t.sheet?'Run sheet':'App','Earlier cadence':t.archived?(t.track||'cold'):'','Reply Logged':t.replyDate||'','Auto-reply':t.autoReply||''});
   const K = Object.values(DB.companies).map(co=>({'Company Key':co.key,'Company':co.name,'State':co.state,'City':co.city,'Employees':co.employees,'Est Annual Hires':co.annualHires,'Industry':co.industry,
     'Mid-sized':isMid(co)?'Yes':'','Mid-sized Override':co.midOverride===true?'Yes':co.midOverride===false?'No':'','Higher-touch':yn(co.higherTouch),'Organized':yn(co.organized),
@@ -1527,7 +1547,7 @@ function readConfig(wb){
 }
 /* Shared = team playbook (scripts, cadence, personas, windows, scoring). Personal = your schedule, caps, rates.
    A teammate's tracker only brings the shared part; your own backup brings both. Your rep name and phone never change. */
-const SHARED_SET = ['windows','mid','address','optOut','maxPerCompany','spend','winback','hubspot','sprint','spacing'], PERSONAL_SET = ['caps','rates','connectRate','goals','daysOff','alerts','homeRep','sigOn'];
+const SHARED_SET = ['windows','mid','address','optOut','maxPerCompany','spend','winback','hubspot','sprint','spacing'], PERSONAL_SET = ['caps','rates','connectRate','goals','daysOff','alerts','homeRep','sigOn','autoRoll'];
 const sharedPart = (custom, settings) => JSON.stringify({sc:custom?.scripts||{}, tr:custom?.tracks||{}, pe:custom?.personas||{}, st:SHARED_SET.map(k=>settings?.[k])});
 const isPlaceholderRep = n => !String(n||'').trim() || /^rep \d+$/i.test(String(n).trim());
 function mergeReps(incoming){
@@ -1589,7 +1609,7 @@ function restoreTracker(wb){
       tzOverride:ZONES[r['TZ Override']]?r['TZ Override']:'', startDate:toYmd(r['Cadence Start']), spacing:['biz','cal'].includes(r['Cadence Spacing'])?r['Cadence Spacing']:'', revisitDate:toYmd(r['Revisit Date']),
       discoveryDate:r['Discovery Date']||'', pauseReason:r['Pause Reason']||'', phoneBad:fromYn(r['Phone Bad']), emailBad:fromYn(r['Email Bad']), lastContacted:r['Last Contacted (import)']||'',
       priorStatus:r['Prior Status (import)']||'', notes:r['Notes']||'', touches:(touches[id]||[]).filter(t=>!t.archived), pastTouches:(touches[id]||[]).filter(t=>t.archived).map(({archived,...t})=>({...t, archived:true})), emailBlocked:fromYn(r['Email Blocked']),
-      recalls:safeJson(r['Call-backs (data)'],[]), bounces:safeJson(r['Bounces (data)'],[]), alsoOn:r['Both Reps Had It']||'', referredBy:r['Referred By']||'', liState:r['LinkedIn Status']||'', liNoPosts:fromYn(r['LinkedIn No Posts']), liSince:r['LinkedIn Since']||'', bestTime:r['Best Time']||'', hsOverride:r['Work Despite HubSpot']==='Yes', hsExported:r['HubSpot Exported']||'', noLi:r['LinkedIn Status']==='No profile', ...(r['LinkedIn Waiting (data)']?{liWait:(()=>{ try { return JSON.parse(r['LinkedIn Waiting (data)']); } catch(e){ return null; } })()}:{}), unqualReason:r['Unqualified Reason']||'', left:(()=>{ try { return r['Left (data)']?JSON.parse(r['Left (data)']):null; } catch(e){ return null; } })(), replaces:r['Replaces']||'', ...(()=>{ try { const x=r['Nurture (data)']?JSON.parse(r['Nurture (data)']):null; return x?{cycle:x.cycle||null, parked:x.parked||''}:{cycle:null, parked:''}; } catch(e){ return {cycle:null, parked:''}; } })(), createdAt:(r['Created At']&&Date.parse(r['Created At']))||Date.now(), ...(r['Moved Steps (data)']?{defer:(()=>{ try { return JSON.parse(r['Moved Steps (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Closed-lost (data)']?{lost:(()=>{ try { return JSON.parse(r['Closed-lost (data)']); } catch(e){ return undefined; } })()}:{}), updatedAt:Date.parse(r['Updated At'])||0};
+      recalls:safeJson(r['Call-backs (data)'],[]), bounces:safeJson(r['Bounces (data)'],[]), alsoOn:r['Both Reps Had It']||'', referredBy:r['Referred By']||'', liState:r['LinkedIn Status']||'', liNoPosts:fromYn(r['LinkedIn No Posts']), liSince:r['LinkedIn Since']||'', bestTime:r['Best Time']||'', hsOverride:r['Work Despite HubSpot']==='Yes', hsExported:r['HubSpot Exported']||'', noLi:r['LinkedIn Status']==='No profile', ...(r['LinkedIn Waiting (data)']?{liWait:(()=>{ try { return JSON.parse(r['LinkedIn Waiting (data)']); } catch(e){ return null; } })()}:{}), unqualReason:r['Unqualified Reason']||'', left:(()=>{ try { return r['Left (data)']?JSON.parse(r['Left (data)']):null; } catch(e){ return null; } })(), replaces:r['Replaces']||'', ...(()=>{ try { const x=r['Nurture (data)']?JSON.parse(r['Nurture (data)']):null; return x?{cycle:x.cycle||null, parked:x.parked||''}:{cycle:null, parked:''}; } catch(e){ return {cycle:null, parked:''}; } })(), createdAt:(r['Created At']&&Date.parse(r['Created At']))||Date.now(), ...(r['Rolled (data)']?{rolled:(()=>{ try { return JSON.parse(r['Rolled (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Moved Steps (data)']?{defer:(()=>{ try { return JSON.parse(r['Moved Steps (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Closed-lost (data)']?{lost:(()=>{ try { return JSON.parse(r['Closed-lost (data)']); } catch(e){ return undefined; } })()}:{}), updatedAt:Date.parse(r['Updated At'])||0};
     if (!DB.companies[inc.companyKey]) DB.companies[inc.companyKey]={key:inc.companyKey,name:r['Company']||inc.companyKey,state:r['State']||'',employees:num(r['Employees']),annualHires:num(r['Est Annual Hires']),higherTouch:false,organized:false,midOverride:null,trigger:'',triggerNote:''};
     if (inc.status==='Attempting' && !inc.startDate) inc.status='New';
     let ex=byId.get(id);
@@ -1862,6 +1882,9 @@ function renderToday(){
   if (m.connected.length){ h += `<h2 id="sec-connected">Connected: set the next step <span class="count">${m.connected.length}</span></h2>` + m.connected.map(c=>`<div class="task"><div>${who(c,all)}</div><div class="small muted">${lastTouch(c)?`${esc(lastTouch(c).outcome)} on ${prettyDate(lastTouch(c).date)}`:''}</div><div class="outs">
     ${pendingRecalls(c)[0]?`<span class="tag good">Call-back ${prettyDate(pendingRecalls(c)[0].date)} ${fmtHour(hrs(pendingRecalls(c)[0].time))}</span>`:`<button class="btn sm" data-act="newCallback" data-id="${c.id}">Schedule call-back</button>`}<button class="btn sm good" data-act="setStatus" data-id="${c.id}" data-status="Discovery booked">Discovery booked</button><button class="btn sm" data-act="setStatus" data-id="${c.id}" data-status="Nurture">Nurture</button><button class="btn sm bad" data-act="setStatus" data-id="${c.id}" data-status="Unqualified">Unqualified</button></div></div>`).join(''); }
   if (m.needEmail.length){ h += `<h2 id="sec-needemail">Need a new email address <span class="count">${m.needEmail.length}</span></h2><p class="small muted" style="margin-top:-4px">These bounced. Their emails are paused and calls and LinkedIn continue. Add a working address to restart emails.</p><div class="seg">${m.needEmail.map(c=>`<button class="btn sm" data-act="bounceOpen" data-id="${c.id}">${esc(c.name)} · ${esc(company(c).name)}</button>`).join('')}</div>`; }
+  { const rolled=[...m.calls, ...m.emails, ...m.lis].filter(it=>it.due===m.t && it.c.rolled && it.c.rolled[it.step.id]);
+    if (rolled.length){ const byDay={}; for (const it of rolled){ const f=it.c.rolled[it.step.id].from; byDay[f]=(byDay[f]||0)+1; }
+      h += `<div class="card" style="margin:0 0 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span><b>${rolled.length} unmarked task${rolled.length===1?'':'s'} moved to today</b> and mixed into the lists below, tagged "moved from".</span>${Object.keys(byDay).sort().map(d=>`<span class="tag warn">${prettyDate(d)}: ${byDay[d]}</span><button class="btn sm" data-act="unrollOff" data-date="${d}" title="Put these back and move everyone's remaining touches forward a business day, so the spacing stays right">I was off ${prettyDate(d).split(',')[0]}: shift the cadence instead</button>`).join('')}</div>`; } }
   { const late=[...m.calls, ...m.emails, ...m.lis].filter(it=>it.due<m.t);
     if (late.length){ const byDay={}; for (const it of late) byDay[it.due]=(byDay[it.due]||0)+1; const days=Object.keys(byDay).sort();
       h += `<h2 id="sec-catchup">Catch up: missed days <span class="count">${late.length}</span></h2><p class="small muted" style="margin-top:-4px">Touches that were due on earlier days and haven't been done. Work them here, or if you were off, shift everyone's remaining touches forward a business day so the spacing stays right.</p>
@@ -2004,7 +2027,7 @@ function who(c, all){
   return `<span class="name" data-act="open" data-id="${c.id}">${esc(c.name)}</span> <span class="opt opt${o}" title="Optimal score">${o}</span> ${bandTag(co)}${c.source==='Old lead'?' <span class="tag warn">Old lead</span>':''}${c.source && !['ZoomInfo','Old lead','Closed lost','Referral'].includes(c.source)?` <span class="tag ${c.source==='Inbound'?'good':''}">${esc(c.source)}</span>`:''}${c.source==='Referral'&&!c.referredBy?' <span class="tag good">Referral</span>':''}${c.track==='nurture'&&c.cycle&&c.status==='Attempting'?` <span class="tag" title="Nurture re-contact after the sprint">Nurture ${c.cycle.round} of ${c.cycle.of||DB.settings.sprint?.rounds||3}</span>`:''}${c.replaces?` <span class="tag good" title="Took over from ${esc(c.replaces)}">Replaces ${esc(c.replaces)}</span>`:''}${c.left?` <span class="tag bad" title="${esc(c.left.note||'')}">${esc(c.left.reason)}${c.left.replacedBy?' → '+esc(c.left.replacedBy):''}</span>`:''}${needsContact(c)?' <span class="tag warn">Contact needed</span>':''}${c.alsoOn?' <span class="tag bad" title="'+esc(c.alsoOn)+'">Both had it</span>':''}${c.referredBy && !c.replaces?` <span class="tag good">Referred by ${esc(c.referredBy)}</span>`:''}${(()=>{ const hm=hsMatch(c); return hm?` <span class="tag bad" title="Matched on ${hm.by}">In HubSpot: ${esc(hm.label)}</span>`:''; })()}${all?` <span class="tag">${esc(repName(c.owner))}</span>`:''}<br>
   <span class="small muted">${esc(c.title)}</span><br><span class="small">${esc(co.name)}${co.state?' · '+esc(co.state):''}${co.trigger?` · <span class="tag good">${esc(co.trigger)}</span>`:''}</span>`;
 }
-function stepLine(it){ const late=daysBetween(it.due,todayStr()), moved=it.c.defer&&it.c.defer[it.step.id]; return `<b>${esc(it.step.label)}</b>${late>0?` <span class="tag bad">${late}d overdue</span>`:late<0?` <span class="tag">due ${prettyDate(it.due)}</span>`:''}${moved&&late<=0?' <span class="tag warn">moved</span>':''}${it.behind?` <span class="tag">+${it.behind} more behind</span>`:''}<br><span class="small muted">${TRACK_LABEL[it.c.track]||'Cold cadence'}${it.c.track==='nurture'&&it.c.cycle?` · round ${it.c.cycle.round} of ${it.c.cycle.of||DB.settings.sprint?.rounds||3}`:` · day ${it.step.day}`}</span>`; }
+function stepLine(it){ const late=daysBetween(it.due,todayStr()), moved=it.c.defer&&it.c.defer[it.step.id]; return `<b>${esc(it.step.label)}</b>${late>0?` <span class="tag bad">${late}d overdue</span>`:late<0?` <span class="tag">due ${prettyDate(it.due)}</span>`:''}${it.c.rolled&&it.c.rolled[it.step.id]&&late<=0?` <span class="tag warn" title="Not marked on ${esc(prettyDate(it.c.rolled[it.step.id].from))}, so it moved here by itself">moved from ${esc(prettyDate(it.c.rolled[it.step.id].from).split(',')[0])}, ${esc(prettyDate(it.c.rolled[it.step.id].from).split(', ')[1]||'')}</span>`:moved&&late<=0?' <span class="tag warn">moved</span>':''}${it.behind?` <span class="tag">+${it.behind} more behind</span>`:''}<br><span class="small muted">${TRACK_LABEL[it.c.track]||'Cold cadence'}${it.c.track==='nurture'&&it.c.cycle?` · round ${it.c.cycle.round} of ${it.c.cycle.of||DB.settings.sprint?.rounds||3}`:` · day ${it.step.day}`}</span>`; }
 function liOutcomes(st){ return OUTCOMES.linkedin.map(o=> o==='Message sent' && String(st.li||'').startsWith('connect') ? 'Request sent' : o); }
 const outLabel = (it, o) => { if (it.step.ch==='linkedin' && o==='Message sent'){ const n=liMsgCount(it.c); return n ? `Follow-up ${n} sent` : '1st message sent'; } return o; };
 function outBtns(it){ const outs = it.step.ch==='linkedin' ? liOutcomes(it.step) : OUTCOMES[it.step.ch], ln=lastNote(it.c);
@@ -2372,7 +2395,7 @@ function renderSettingsBody(){
       <li>Map each column: contact columns to Contact properties, company columns (Company name, Company domain name, Company owner, City, State/Region, Number of employees, Industry, the green lights, Annual checks, Current provider, Contract renewal date) to Company properties. Map "Contact record ID" to the contact's Record ID. Choose "Don't import" for any column you haven't built a property for.</li>
       <li>Let HubSpot create and update records. Empty cells don't clear what's already in HubSpot.</li>
       <li>Check the import summary for errors, usually an owner email or a dropdown value that doesn't match.</li></ol></details></div>
-  <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Days off</h3><p class="small muted" style="margin-top:0">Holidays and PTO. Cadences, call-back retries and run sheets skip these like weekends. <b>Add and shift</b> also moves every contact's remaining touches from that day on forward one business day, so the spacing stays the same (use it for a day you missed, or before time off). Your days off are yours; they don't change your teammate's plan.</p>
+  <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Days off</h3><label class="chk" style="margin-bottom:10px"><input type="checkbox" data-set="autoRoll" ${s.autoRoll!==false?'checked':''}> Move unmarked tasks to the next working day by themselves. Only the missed task moves; the rest of the cadence keeps its dates. Turn off to keep them under "Catch up: missed days" instead. Just for you.</label><p class="small muted" style="margin-top:0">Holidays and PTO. Cadences, call-back retries and run sheets skip these like weekends. <b>Add and shift</b> also moves every contact's remaining touches from that day on forward one business day, so the spacing stays the same (use it for a day you missed, or before time off). Your days off are yours; they don't change your teammate's plan.</p>
     <div class="filters"><input type="date" id="offDate"><button class="btn sm primary" data-act="dayOff">Add and shift the cadence</button><button class="btn sm" data-act="dayOffOnly">Add without shifting</button></div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${(s.daysOff||[]).length ? s.daysOff.map(d=>`<span class="tag ${d<todayStr()?'':'warn'}">${prettyDate(d)} <button class="btn sm" style="padding:0 5px;margin-left:4px" data-act="delDayOff" data-date="${d}" title="Remove">×</button></span>`).join('') : '<span class="small muted">None yet.</span>'}</div></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Closed-lost follow-up timing</h3><p class="small muted" style="margin-top:0">A HubSpot recycle date always wins. Otherwise a known renewal sets the date; otherwise the loss reason does. These defaults are not in the playbook; agree them with your manager.</p>
@@ -2896,6 +2919,8 @@ document.addEventListener('click', e=>{
     case 'lostRecalc': if (c){ c.revisitDate=lostFollowUp(c).date; touch(c); save(); render(); toast(`Follow-up set for ${prettyDate(c.revisitDate)}`); } break;
     case 'toggleAhead': UI.ahead=!UI.ahead; render(); break;
     case 'defer': if (c){ const d=nextBiz(addDays(todayStr(),1)); (c.defer ||= {})[el.dataset.step]=d; touch(c); save(); render(); toast(`Moved to ${prettyDate(d)}. The rest of ${firstName(c)}'s cadence keeps its dates.`); } break;
+    case 'unrollOff': { const D=el.dataset.date; if (!isValidYmd(D)) return; unroll(D); const prev=DB.settings.autoRoll; DB.settings.autoRoll=false;
+      const r=shiftForDayOff(D); DB.settings.autoRoll=prev; render(); toast(`${prettyDate(D)} marked as a day off. ${r.steps} touch${r.steps===1?'':'es'} for ${r.people} contact${r.people===1?'':'s'} moved forward a business day.`); } break;
     case 'dayOff': { const D=el.dataset.date||$('#offDate')?.value; if (!isValidYmd(D)) return toast('Pick a date');
       const r=shiftForDayOff(D); render(); toast(`${prettyDate(D)} marked as a day off. ${r.steps} touch${r.steps===1?'':'es'} for ${r.people} contact${r.people===1?'':'s'} moved forward a business day.`); } break;
     case 'dayOffOnly': { const D=$('#offDate')?.value; if (!isValidYmd(D)) return toast('Pick a date'); if (!(DB.settings.daysOff||[]).includes(D)) DB.settings.daysOff=[...(DB.settings.daysOff||[]), D].sort(); save(); render(); toast(`${prettyDate(D)} added. New plans skip it; existing touches on that day roll to the next business day.`); } break;
