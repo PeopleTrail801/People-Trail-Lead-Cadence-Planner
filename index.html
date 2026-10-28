@@ -810,6 +810,8 @@ function finishCadence(c, date, at){
 /* Unmarked tasks roll to the next working day by themselves (Settings → Days off; on by default). Only the missed task moves:
    later steps keep their dates. The card shows "moved from [day]"; "I was off" on Today puts them back and shifts the cadence instead.
    Only the browser owner's leads, as with nurture. Call-backs keep their promised time. */
+const APP_BUILD = '2.1 · Oct 28, 2026';
+const autoRep = () => DB.settings.homeRep || (DB.settings.currentRep!=='all' ? DB.settings.currentRep : '');
 function autoRoll(){
   const me=DB.settings.homeRep || (DB.settings.currentRep!=='all' ? DB.settings.currentRep : ''); if (!me || DB.settings.autoRoll===false) return;
   const T=nextBiz(todayStr()); let n=0;
@@ -1801,6 +1803,7 @@ function renderHeader(){
   $('#backup').innerHTML=b;
 }
 function render(){
+  UI.lastDay=todayStr();
   autoCycle();
   renderHeader();
   const trashBar = UI.trash && Date.now()-UI.trash.at < 10*60*1000 ? `<div class="card" style="margin-bottom:12px;display:flex;gap:10px;align-items:center;border-color:var(--bad)"><span>Deleted ${UI.trash.items.length===1?esc(UI.trash.items[0].name):UI.trash.items.length+' leads'}.</span><button class="btn sm primary" data-act="undoDelete">Undo</button><button class="btn sm" data-act="dismissTrash">Dismiss</button></div>` : '';
@@ -1863,6 +1866,8 @@ function renderToday(){
   h += `<div class="todaybar" id="todaybar"><div class="tb-prog"><div class="tb-top"><b>${done} of ${total} done today</b><span class="small muted">${dialsToday} of ${caps.dials} dials</span>${tEm.length+late.filter(x=>x.step.ch==='email').length>caps.emails?`<span class="tag warn small">emails over the ${caps.emails} cap</span>`:''}</div><div class="pbar"><div style="width:${pct}%"></div></div></div>
     <div class="tb-jump">${jump('sec-recalls','Call-backs',m.recalls.length,'hot')}${jump('sec-connected','Connected',m.connected.length,'hot')}${jump('sec-catchup','Catch up',late.length,'warn')}${jump('sec-calls','Calls',tCalls.length)}${jump('sec-emails','Emails',tEm.length)}${jump('sec-li','LinkedIn',tLi.length)}${jump('sec-liwait','Waiting',waitN)}</div>
     <button class="btn primary sm" data-act="focusOn" ${left-m.recalls.length?'':'disabled'} title="One task at a time, with keyboard shortcuts">Focus mode ▸</button></div>`;
+  if (!autoRep()) h += `<div class="banner" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span><b>Whose browser is this?</b> Unmarked tasks and nurture re-contacts only move by themselves for the rep this browser belongs to, and you're working as Both reps.</span>${DB.settings.reps.map(r=>`<button class="btn sm primary" data-act="setHome" data-rep="${r.id}">${esc(r.name)}</button>`).join('')}</div>`;
+  if (!DB.settings.homeRep) h += `<div class="banner">Whose browser is this? <b>Missed tasks and nurture re-contacts only move by themselves for the rep this browser belongs to.</b> ${DB.settings.reps.map(r=>`<button class="btn sm" data-act="setHome" data-rep="${r.id}">I'm ${esc(r.name)}</button>`).join(' ')}</div>`;
   if (UI.cycleNote && Date.now()-UI.cycleNote.at < 30*60*1000){ const n=UI.cycleNote; h += `<div class="banner" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span>${[n.ended?`${n.ended} contact${n.ended===1?'':'s'} finished the sprint (${DB.settings.sprint.calls} calls, ${DB.settings.sprint.emails} emails, ${DB.settings.sprint.li} LinkedIn message) and moved to nurture`:'', n.started?`${n.started} nurture re-contact${n.started===1?' is':'s are'} on today's list`:''].filter(Boolean).join('. ')}.</span><button class="btn sm" data-act="cycleNoteOff">OK</button></div>`; }
   if (UI.focus) return h + renderFocus(m, all);
   { const hp=hsPending(), items=[];
@@ -2359,7 +2364,7 @@ function renderSettings(){
 function renderSettingsBody(){
   const s=DB.settings, w=s.windows;
   const winInp=(k,l)=>`<label>${l}<input type="text" data-win="${k}" value="${esc(w[k])}"></label>`;
-  return `<div class="card"><h3 style="margin-top:0">Does it save?</h3>
+  return `<p class="small muted" style="margin:0 0 8px">App version ${APP_BUILD}. If this isn't the latest, reload the page with Ctrl+Shift+R (Cmd+Shift+R on a Mac).</p><div class="card"><h3 style="margin-top:0">Does it save?</h3>
     <p class="small" style="margin-top:0">Yes. Every change saves instantly in this browser on this computer, and stays after you close the tab or restart. It does <b>not</b> follow you to another browser or computer, and clearing your browser's site data erases it. For a real file on disk, turn on auto-save below (Chrome or Edge), or download the tracker daily.</p>
     ${FileSave.supported ? (FileSave.handle
       ? `<p class="small">Auto-save file: <b>${esc(FileSave.name)}</b> ${FileSave.ok?`<span class="tag good">On</span>${FileSave.last?` · last written ${new Date(FileSave.last).toLocaleTimeString()}`:''}`:'<span class="tag warn">Needs your OK after each browser restart</span>'}</p>
@@ -2862,6 +2867,7 @@ document.addEventListener('click', e=>{
     case 'closeModal': UI.modal=null; renderModal(); break;
     case 'addLead': UI.modal={type:'addLead'}; renderModal(); break;
     case 'impType': { const t=el.dataset.t; UI.impType=t; DB.settings.impType=t; if (UI.draft && UI.draft.rows){ UI.draft.type=t; UI.draft.detected=false; UI.draft.source=null; } save(); render(); } break;
+    case 'setHome': DB.settings.homeRep=el.dataset.rep; save(); render(); toast(`This browser belongs to ${repName(el.dataset.rep)}. Missed tasks now move to today by themselves.`); break;
     case 'toggleUploads': UI.showUploads=!UI.showUploads; render(); break;
     case 'addLeadSave': saveAddLead(); break;
     case 'useCallCap': DB.settings.caps.dials=+el.dataset.n||DB.settings.caps.dials; save(); render(); toast(`Dial target set to ${DB.settings.caps.dials} a day (Settings → Daily capacity)`); break;
@@ -2919,6 +2925,7 @@ document.addEventListener('click', e=>{
     case 'lostRecalc': if (c){ c.revisitDate=lostFollowUp(c).date; touch(c); save(); render(); toast(`Follow-up set for ${prettyDate(c.revisitDate)}`); } break;
     case 'toggleAhead': UI.ahead=!UI.ahead; render(); break;
     case 'defer': if (c){ const d=nextBiz(addDays(todayStr(),1)); (c.defer ||= {})[el.dataset.step]=d; touch(c); save(); render(); toast(`Moved to ${prettyDate(d)}. The rest of ${firstName(c)}'s cadence keeps its dates.`); } break;
+    case 'setHome': DB.settings.homeRep=el.dataset.rep; save(); render(); toast(`This browser is ${repName(el.dataset.rep)}'s. Their unmarked tasks moved to today.`); break;
     case 'unrollOff': { const D=el.dataset.date; if (!isValidYmd(D)) return; unroll(D); const prev=DB.settings.autoRoll; DB.settings.autoRoll=false;
       const r=shiftForDayOff(D); DB.settings.autoRoll=prev; render(); toast(`${prettyDate(D)} marked as a day off. ${r.steps} touch${r.steps===1?'':'es'} for ${r.people} contact${r.people===1?'':'s'} moved forward a business day.`); } break;
     case 'dayOff': { const D=el.dataset.date||$('#offDate')?.value; if (!isValidYmd(D)) return toast('Pick a date');
@@ -3013,7 +3020,7 @@ document.addEventListener('change', async e=>{
   if (el.name==='rType') return replyFields();
   if (el.name==='bReason'){ const h=$('#bHard'); if (h) h.style.display = el.value==='hard' ? '' : 'none'; return; }
   if (el.id==='cbDate'||el.id==='cbTime'||el.name==='cbBy') return updateCbYour();
-  if (el.id==='repSel'){ DB.settings.currentRep=el.value; UI.selected.clear(); save(false); render(); return; }
+  if (el.id==='repSel'){ DB.settings.currentRep=el.value; if (el.value!=='all' && !DB.settings.homeRep) DB.settings.homeRep=el.value; UI.selected.clear(); save(false); render(); return; }
   if (el.id==='hsCheckIn'){ const file=el.files[0]; if (!file) return;
     if (typeof XLSX==='undefined') return alert('The spreadsheet library did not load.');
     try { const wb=XLSX.read(await file.arrayBuffer(), {type:'array', raw:/\.(csv|tsv|txt)$/i.test(file.name||'')});
@@ -3091,7 +3098,9 @@ document.addEventListener('change', async e=>{
     save(); render(); }
 });
 document.addEventListener('keydown', e=>{ if (e.key!=='Escape') return; if (UI.modal?.type==='setup') return; if (UI.modal){ UI.modal=null; renderModal(); } else if (UI.drawer){ UI.drawer=null; renderDrawer(); } });
-setInterval(()=>{ if (UI.tab==='today' && !UI.drawer && !UI.modal && !document.querySelector('details[open]') && !['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)) render(); }, 60000);
+setInterval(()=>{ const typing=['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName), newDay=UI.lastDay && UI.lastDay!==todayStr();
+  if (newDay && !typing && !UI.modal){ render(); return; }
+  if (UI.tab==='today' && !UI.drawer && !UI.modal && !document.querySelector('details[open]') && !typing) render(); }, 60000);
 
 load().then(()=>{ render(); if (!DB.setupDone){ UI.modal={type:'setup'}; renderModal(); } });
 </script>
