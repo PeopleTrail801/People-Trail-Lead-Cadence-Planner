@@ -107,7 +107,7 @@ label.chk{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
 .task .full{grid-column:1/-1}
 .name{font-weight:700;cursor:pointer}
 .name:hover{text-decoration:underline}
-.outs{display:flex;flex-wrap:wrap;gap:6px}
+.outs{display:flex;flex-wrap:wrap;gap:6px}.moreOut{font:inherit;font-size:13px;padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card,#fff);color:inherit;max-width:220px}
 .qnote{display:flex;gap:6px;align-items:center;margin:2px 0 6px}.qnote input{flex:1;min-width:160px;padding:5px 8px;font-size:12.5px}.lastnote{font-size:12px;color:var(--muted);margin:0 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 details.script{border-top:1px dashed var(--line);padding-top:6px}
 details.script summary,details.more summary{cursor:pointer;color:var(--brand);font-weight:600;font-size:13px}
@@ -481,13 +481,21 @@ const DEFAULTS = {
   TRACKS:structuredClone(TRACKS), PERSONAS:structuredClone(PERSONAS),
 };
 const CH_LABEL = {call:'Call', email:'Email', linkedin:'LinkedIn'};
+/* Buttons on the card; everything else is in the card's "More" menu, grouped. */
+const OUT_MAIN = {call:['Connected','Meeting booked','Call back','Left voicemail','No answer','Gatekeeper','Skip'],
+  email:['Sent','Replied','Meeting booked','Bounced','Skip'], linkedin:['Request sent','Message sent','Accepted','Replied','Skip']};
+const OUT_MORE = {
+  call:[["Couldn't reach them",['Voicemail full','Not in dialer','Not in service','Wrong number']],["Spoke with them",['Signed elsewhere']],["Wrong person or stop",['Not the right person','Contact left','Do not call']]],
+  email:[["Auto-reply",['Sent · out of office','Sent · verify (Sendio)']],["Stop",['Opted out']]],
+  linkedin:[["Their answer",['Not interested']],["Couldn't connect",['Followed','Follow requested']],["Can't use LinkedIn",['act:noLi','act:liDisabled']]]};
+const OUT_SHORT = {'Voicemail full':'Voicemail full','Not in dialer':'Not found in dial-by-name directory','Not in service':'Number not in service','Signed elsewhere':'Just signed with another provider','act:noLi':'No LinkedIn profile','act:liDisabled':'Messaging disabled (recipient blocks all messages)'};
 /* Every LinkedIn message has a subject (InMail and Sales Navigator won't send without one); scripts without one get a plain default. */
 const LI_SUBJECT_DEFAULT = {connect4:'HR leaders in [state]', connect1:'your post on [topic]', connect2:'congrats on the new role', connect3:'growth at [Their Company]', voice:'quick voice note'};
 const liSubject = k => (LINKEDIN[k] && LINKEDIN[k].subject) || LI_SUBJECT_DEFAULT[k] || 'quick question, [Prospect]';
 const OUTCOMES = {
-  call: ['Connected','Meeting booked','Call back','Left voicemail','No answer','Gatekeeper','Wrong number','Not the right person','Contact left','Do not call','Skip'],
+  call: ['Connected','Meeting booked','Call back','Left voicemail','No answer','Gatekeeper','Voicemail full','Not in dialer','Not in service','Wrong number','Not the right person','Contact left','Signed elsewhere','Do not call','Skip'],
   email:['Sent','Sent · out of office','Sent · verify (Sendio)','Replied','Meeting booked','Bounced','Opted out','Skip'],
-  linkedin:['Message sent','Followed','Follow requested','Accepted','Replied','Skip'],
+  linkedin:['Message sent','Followed','Follow requested','Accepted','Replied','Not interested','Skip'],
 };
 const STOP_CONNECT = new Set(['Connected','Replied','Call back requested']);
 const LIVE = new Set(['Connected','Meeting booked','Not the right person','Do not call','Call back requested']);
@@ -786,7 +794,7 @@ function sprintCut(list, c){
     if (met()){ if (done.has(s.id)) out.push(s); continue; }
     out.push(s); const t=done.get(s.id);
     if ((t && t.outcome==='Skip') || (off && s.ch==='email')) continue;
-    if (s.ch==='linkedin'){ if (isLiMsg(s) && !(t && ['Followed','Follow requested'].includes(t.outcome))) have.linkedin++; } else have[s.ch]++;
+    if (s.ch==='linkedin'){ if (t ? (t.msgNo || ['Message sent','Waiting for response','No response','Replied','Not interested'].includes(t.outcome) || (isLiMsg(s) && !['Followed','Follow requested','Request sent'].includes(t.outcome))) : isLiMsg(s)) have.linkedin++; } else have[s.ch]++;
   }
   return out;
 }
@@ -953,9 +961,10 @@ function applyOutcome(c, stepId, outcome, date, quiet){
   c.touches = c.touches||[];
   if (c.touches.some(t=>t.step===stepId)) return false;
   date = date || todayStr();
-  if (st.ch==='linkedin' && ['Done','Message sent','Request sent'].includes(outcome)) outcome = String(st.li||'').startsWith('connect') ? 'Request sent' : 'Message sent';
+  if (st.ch==='linkedin' && outcome==='Done') outcome = String(st.li||'').startsWith('connect') ? 'Request sent' : 'Message sent';
+  if (st.ch==='linkedin' && outcome==='Request sent' && !String(st.li||'').startsWith('connect')) outcome='Message sent';
   /* LinkedIn messages are numbered (1st message, follow-up 1, 2...) and wait on "LinkedIn: waiting for response" until you log the answer. */
-  const isMsg = st.ch==='linkedin' && ['Message sent','Waiting for response'].includes(outcome) && !String(st.li||'').startsWith('connect');
+  const isMsg = st.ch==='linkedin' && ['Message sent','Waiting for response'].includes(outcome);
   const msgNo = isMsg ? liMsgCount(c)+1 : 0;
   if (c.rolled && c.rolled[stepId]) delete c.rolled[stepId];
   c.touches.push({step:stepId, ch:st.ch, label:st.label+(msgNo?` · ${msgNo===1?'1st message':'follow-up '+(msgNo-1)}`:''), date, outcome, ...(msgNo?{msgNo}:{}), at:new Date().toISOString()});
@@ -974,6 +983,9 @@ function applyOutcome(c, stepId, outcome, date, quiet){
   else if (outcome==='Not the right person'){ c.status='Unqualified'; c.unqualReason='Not the right person'; msg='Ask who owns screening and add them as a contact'; }
   else if (outcome==='Contact left'){ c.status='Unqualified'; c.unqualReason='Left: '+((c.left&&c.left.reason)||'no longer there'); msg=`${c.name} marked as no longer there`; }
   else if (outcome==='Wrong number'){ c.phoneBad=true; }
+  else if (outcome==='Not in service'){ c.phoneBad=true; msg=`${c.name}: number not in service, flagged. Calls carry on to any other number; emails and LinkedIn continue.`; }
+  else if (outcome==='Not in dialer'){ msg=`${c.name} isn't in their dial-by-name directory. They may have left: check LinkedIn, or ask the operator. If they're gone, use Contact left.`; }
+  else if (outcome==='Not interested'){ c.status='Nurture'; c.revisitDate=addDays(date,180); c.liWait=null; msg=`${c.name}: not interested. Cadence stopped; revisit in 6 months.`; }
   else if (outcome==='Bounced'){ c.emailBad=true; (c.bounces ||= []).push({date, address:c.email, reason:'hard', step:stepId}); }
   if (c.status!=='Attempting'){ if (c.cycle) c.cycleUndo={cycle:structuredClone(c.cycle), parked:c.parked||'', at:c.touches[c.touches.length-1].at}; c.cycle=null; }  /* a real answer ends the nurture rounds */
   else if (pendingSteps(c).length===0) msg=finishCadence(c, date, c.touches[c.touches.length-1].at);
@@ -984,6 +996,20 @@ function applyOutcome(c, stepId, outcome, date, quiet){
 /* Notes: newest first in the contact's Notes, dated; a note typed on a task card is also kept on the touch it was logged with. */
 function addNote(c, text, label){ const t=String(text||'').trim(); if (!t) return false; c.notes=`${prettyDate(todayStr())}${label?' · '+label:''}: ${t}${c.notes?'\n'+c.notes:''}`; touch(c); return true; }
 const lastNote = c => String(c.notes||'').split('\n').find(x=>x.trim())||'';
+function actLiDisabled(c){ const n=pendingSteps(c).filter(x=>x.ch==='linkedin').length; c.noLi=true; c.liState='Messaging disabled'; c.liWait=null; addNote(c, 'recipient has disabled all communications', 'LinkedIn'); touch(c); save(); render();
+  toast(`${firstName(c)} has disabled LinkedIn messages: ${n} LinkedIn touch${n===1?'':'es'} became email${n===1?'':'s'}. Undo in the contact card (LinkedIn).`); }
+function actNoLi(c){ const b=document.createElement('button'); b.dataset.act='noLi'; b.dataset.id=c.id; b.style.display='none'; document.body.appendChild(b); b.click(); b.remove(); }
+function handleLog(c, stepId, out, el){
+  const note=(el.closest('.task')?.querySelector(`[data-qnote="${c.id}"]`)?.value||'').trim();
+  if (out==='act:noLi') return actNoLi(c);
+  if (out==='act:liDisabled') return actLiDisabled(c);
+  if (out==='Call back'){ if (note) addNote(c, note, 'Call back'); UI.modal={type:'callback', cid:c.id, stepId}; return renderModal(); }
+  if (out==='Bounced'){ if (note) addNote(c, note, 'Bounced'); UI.modal={type:'bounce', cid:c.id, stepId}; return renderModal(); }
+  if (out==='Contact left'){ UI.modal={type:'left', cid:c.id, stepId, note}; return renderModal(); }
+  if (out==='Signed elsewhere'){ logOutcome(c, stepId, 'Connected', note); UI.modal={type:'signed', cid:c.id}; return renderModal(); }
+  if (out==='Sent · out of office' || out==='Sent · verify (Sendio)'){ logOutcome(c, stepId, 'Sent', note); UI.modal={type:'reply', cid:c.id, detected: out.includes('Sendio') ? {type:'verify', service:'Sendio'} : {type:'ooo'}}; return renderModal(); }
+  logOutcome(c, stepId, out, note);
+}
 function logOutcome(c, stepId, outcome, note){
   applyOutcome(c, stepId, outcome, todayStr(), false);
   if (note){ const t=[...(c.touches||[])].reverse().find(x=>x.step===stepId); if (t) t.note=note; addNote(c, note, outcome); }
@@ -994,6 +1020,7 @@ function liRespond(c, out){
   t.outcome = out; t.replyDate=today; c.liWait=null; let msg='';
   if (out==='Replied'){ c.liState='Connected'; c.liSince=c.liSince||today; if (['Attempting','New','Nurture','Paused'].includes(c.status)){ c.status='Connected'; pauseColleagues(c, `Colleague ${c.name} replied`); } msg=`${c.name} replied on LinkedIn: moved to Connected. Set the next step on Today.`; }
   else if (out==='Accepted'){ c.liState='Connected'; c.liSince=today; msg=`${c.name} accepted. Their next LinkedIn touch is a message.`; }
+  else if (out==='Not interested'){ c.liState='Connected'; if (['Attempting','New','Paused'].includes(c.status)){ c.status='Nurture'; c.revisitDate=addDays(today,180); c.cycle=null; } msg=`${c.name}: not interested. Cadence stopped; revisit in 6 months.`; }
   else msg=`No response logged for ${c.name}. The cadence carries on.`;
   touch(c); save(); return msg;
 }
@@ -1011,7 +1038,7 @@ function undoLast(c){
   if (t.outcome==='Contact left'){ c.left=null; c.unqualReason=''; }
   if (c.cycleUndo && c.cycleUndo.at===t.at){ c.cycle=c.cycleUndo.cycle; c.parked=c.cycleUndo.parked; if (c.status==='Nurture') c.revisitDate=''; c.cycleUndo=null; }
   if (['Connected','Discovery booked','Nurture','Do not contact','Unqualified'].includes(c.status)) c.status='Attempting';
-  if (t.outcome==='Wrong number') c.phoneBad=false; if (t.outcome==='Bounced') c.emailBad=false;
+  if (t.outcome==='Wrong number' || t.outcome==='Not in service') c.phoneBad=false; if (t.outcome==='Bounced') c.emailBad=false;
   touch(c); save(); render(); toast('Last touch undone (paused colleagues stay paused; resume them in Leads)');
 }
 /* ---------- Call-backs (scheduled recalls) ---------- */
@@ -1744,7 +1771,11 @@ function normalizeOutcome(ch, text, done){
     if (!t) return d ? 'No answer' : '';
     if (/book|discovery|meeting|demo/.test(t)) return 'Meeting booked';
     if (/not the right|wrong person|referr/.test(t)) return 'Not the right person';
-    if (/wrong|disconnect/.test(t)) return 'Wrong number';
+    if (/not in service|disconnect|no longer in service/.test(t)) return 'Not in service';
+    if (/(mailbox|vm|voicemail|voice mail) ?(is )?full/.test(t)) return 'Voicemail full';
+    if (/dialer|directory|dial by name|not found/.test(t)) return 'Not in dialer';
+    if (/signed (with|elsewhere)|went with|just signed/.test(t)) return 'Signed elsewhere';
+    if (/wrong/.test(t)) return 'Wrong number';
     if (/dnc|do not|don't call|remove/.test(t)) return 'Do not call';
     if (/connect|spoke|talked|conversation|live/.test(t)) return 'Connected';
     if (/\bvm\b|voicemail|voice mail|left/.test(t)) return 'Left voicemail';
@@ -1757,7 +1788,7 @@ function normalizeOutcome(ch, text, done){
     if (/opt|unsub|remove/.test(t)) return 'Opted out'; if (/skip/.test(t)) return 'Skip';
     return (t||d) ? 'Sent' : '';
   }
-  if (/repl/.test(t)) return 'Replied'; if (/accept/.test(t)) return 'Accepted'; if (/skip/.test(t)) return 'Skip';
+  if (/not interest/.test(t)) return 'Not interested'; if (/repl/.test(t)) return 'Replied'; if (/accept/.test(t)) return 'Accepted'; if (/skip/.test(t)) return 'Skip';
   if (/wait/.test(t)) return 'Waiting for response'; if (/no (linkedin|profile)/.test(t)) return 'Skip';
   if (/follow.*req|req.*follow|private/.test(t)) return 'Follow requested'; if (/follow/.test(t)) return 'Followed';
   return (t||d) ? 'Message sent' : '';
@@ -1885,7 +1916,7 @@ function renderToday(){
     <div class="qrow2"><div class="zonestrip">${strip}</div><details class="small muted"><summary>Why ${rec.today}?</summary>${rec.ramp?(()=>{ const R=rec.ramp; return `<b>Ramp-up</b> <span class="tag warn small">not in playbook, review</span>: to keep <b>${caps.dials} dials a day</b> over the next ${R.H} business days, the calls already on the books (follow-ups, call-backs${DB.contacts.some(c=>mine(c)&&c.cycle)?', nurture re-contacts':''}${m.t===R.days[0]?' and dials you\'ve logged today':''}) come to about <b>${Math.round(R.bookedDay)} a day</b>, so start <b>${R.startsToday} new contacts today</b> and about ${R.startsDay} a day over the next week (${R.days.slice(0,5).map(d=>`${parseYmd(d).toLocaleDateString('en-US',{weekday:'short'})} ${R.startsBy.get(d)}`).join(', ')}). ${(DB.settings.spacing||'biz')==='cal'?'Days 3 and 5 of the cadence roll weekend dates to Monday, so the plan starts more early in the week and fewer later to keep each day even':'Cadence days count as business days, so new contacts spread their calls evenly across the week'}${R.startedToday?`. You've started ${R.startedToday} today, so <b>${rec.today} more</b>`:''}${R.ready<R.startsToday-R.startedToday?`. Only <b>${R.ready}</b> are ready in the queue (the rest are held by the ${q.max}-per-company limit or the queue is short)`:''}. Each new contact gives about ${rec.e.sprint?rec.e.sprint.call.toFixed(1):rec.callsPer.toFixed(1)} calls in its first week, because some answer early. Once nurture re-contacts are running, about <b>${rec.steady} a day</b> holds the target.<br>Emails at this pace: about <b>${Math.round(R.emailsDay)} a day</b>, and LinkedIn about <b>${Math.round(R.liDay)} a day</b>${R.liDay>caps.linkedin+0.5?` (cap ${caps.linkedin})`:''}, over the next ${R.H} business days${R.emailsDay>caps.emails+0.5?`, over your ${caps.emails}-email cap: the cadence pairs every call step with an email, so more dials mean more emails. Cut email steps on the Cadence tab, or agree a higher cap with your manager`:''}.`; })():`To average <b>${caps.dials} cadence dials a day</b>, start about <b>${rec.steady} new contacts a day</b>. Pick one rep under Working as to see the ramp-up plan.`}${lr.n>=30?` Your live-answer rate so far: ${(lr.rate*100).toFixed(0)}% on ${lr.n} dials.`:''}<br>Your call blocks (${cap.blocks.map(b=>esc(b.label)).join(', ')||'none'}) hold about <b>${cap.dials} dials</b> a day at ${DB.settings.rates.call} an hour.${cap.dials>caps.dials?` To fill them, raise your dial target: <button class="btn sm" data-act="useCallCap" data-n="${cap.dials}">Use ${cap.dials} as my dial target</button> (not in playbook, review: the playbook's block is 30 dials).`:''}</details></div></div>`;
   if (m.recalls.length){ h += `<h2 id="sec-recalls">Scheduled call-backs <span class="count">${m.recalls.length}</span>${DB.settings.alerts?.on?'<span class="tag good small" title="Alerts before each call-back">🔔 alerts on</span>':'<button class="btn sm" data-act="alertsOn">🔔 Alert me before call-backs</button>'}</h2><p class="small muted" style="margin-top:-4px">Fixed times: these come before everything else. No answer sets one retry for tomorrow at the same time (up to 3 tries).</p>` + m.recalls.map(x=>taskRecall(x,all)).join(''); }
   if (m.connected.length){ h += `<h2 id="sec-connected">Connected: set the next step <span class="count">${m.connected.length}</span></h2>` + m.connected.map(c=>`<div class="task"><div>${who(c,all)}</div><div class="small muted">${lastTouch(c)?`${esc(lastTouch(c).outcome)} on ${prettyDate(lastTouch(c).date)}`:''}</div><div class="outs">
-    ${pendingRecalls(c)[0]?`<span class="tag good">Call-back ${prettyDate(pendingRecalls(c)[0].date)} ${fmtHour(hrs(pendingRecalls(c)[0].time))}</span>`:`<button class="btn sm" data-act="newCallback" data-id="${c.id}">Schedule call-back</button>`}<button class="btn sm good" data-act="setStatus" data-id="${c.id}" data-status="Discovery booked">Discovery booked</button><button class="btn sm" data-act="setStatus" data-id="${c.id}" data-status="Nurture">Nurture</button><button class="btn sm bad" data-act="setStatus" data-id="${c.id}" data-status="Unqualified">Unqualified</button></div></div>`).join(''); }
+    ${pendingRecalls(c)[0]?`<span class="tag good">Call-back ${prettyDate(pendingRecalls(c)[0].date)} ${fmtHour(hrs(pendingRecalls(c)[0].time))}</span>`:`<button class="btn sm" data-act="newCallback" data-id="${c.id}">Schedule call-back</button>`}<button class="btn sm good" data-act="setStatus" data-id="${c.id}" data-status="Discovery booked">Discovery booked</button><button class="btn sm" data-act="setStatus" data-id="${c.id}" data-status="Nurture">Nurture</button><button class="btn sm" data-act="signedOpen" data-id="${c.id}" title="They just signed with another provider: come back 90 days before their renewal">Just signed elsewhere</button><button class="btn sm bad" data-act="setStatus" data-id="${c.id}" data-status="Unqualified">Unqualified</button></div></div>`).join(''); }
   if (m.needEmail.length){ h += `<h2 id="sec-needemail">Need a new email address <span class="count">${m.needEmail.length}</span></h2><p class="small muted" style="margin-top:-4px">These bounced. Their emails are paused and calls and LinkedIn continue. Add a working address to restart emails.</p><div class="seg">${m.needEmail.map(c=>`<button class="btn sm" data-act="bounceOpen" data-id="${c.id}">${esc(c.name)} · ${esc(company(c).name)}</button>`).join('')}</div>`; }
   { const rolled=[...m.calls, ...m.emails, ...m.lis].filter(it=>it.due===m.t && it.c.rolled && it.c.rolled[it.step.id]);
     if (rolled.length){ const byDay={}; for (const it of rolled){ const f=it.c.rolled[it.step.id].from; byDay[f]=(byDay[f]||0)+1; }
@@ -1905,7 +1936,7 @@ function renderToday(){
   { const wait=DB.contacts.filter(c=>mine(c) && c.liWait).sort((a,b)=>a.liWait.date.localeCompare(b.liWait.date));
     if (wait.length) h += `<h2 id="sec-liwait">LinkedIn: waiting for response <span class="count">${wait.length}</span></h2><p class="small muted" style="margin-top:-4px">Every LinkedIn message you've sent (1st message or follow-up) waits here until they answer. Their cadence keeps going; log Replied or No response here when you know.</p>` +
       wait.map(c=>{ const d=daysBetween(c.liWait.date, m.t); return `<div class="task ${bandCls(c)}"><div>${who(c,all)}</div><div class="small">${esc(c.liWait.label)}<br><span class="muted">Sent ${prettyDate(c.liWait.date)}</span> <span class="tag ${d>=14?'bad':d>=7?'warn':''}">${d} day${d===1?'':'s'} waiting</span></div>
-        <div class="outs" style="align-items:flex-start"><a class="btn sm" href="${esc(linkedinUrl(c))}" target="_blank" rel="noopener">Open LinkedIn</a><button class="btn sm good" data-act="liWait" data-id="${c.id}" data-out="Replied">Replied</button><button class="btn sm" data-act="liWait" data-id="${c.id}" data-out="Accepted">Accepted</button><button class="btn sm" data-act="liWait" data-id="${c.id}" data-out="No response">No response</button></div></div>`; }).join(''); }
+        <div class="outs" style="align-items:flex-start"><a class="btn sm" href="${esc(linkedinUrl(c))}" target="_blank" rel="noopener">Open LinkedIn</a><button class="btn sm good" data-act="liWait" data-id="${c.id}" data-out="Replied">Replied</button><button class="btn sm" data-act="liWait" data-id="${c.id}" data-out="Accepted">Accepted</button><button class="btn sm" data-act="liWait" data-id="${c.id}" data-out="No response">No response</button><button class="btn sm bad" data-act="liWait" data-id="${c.id}" data-out="Not interested">Not interested</button></div></div>`; }).join(''); }
   { const A=m.ahead, n=A.calls.length+A.emails.length+A.lis.length;
     h += `<h2 id="sec-ahead">Tomorrow's tasks <span class="count">${n}</span> <button class="btn sm" data-act="toggleAhead">${UI.ahead?'Hide':'Work ahead'}</button></h2><p class="small muted" style="margin-top:-4px">${prettyDate(A.date)}: ${A.calls.length} calls, ${A.emails.length} emails, ${A.lis.length} LinkedIn. Done early, a touch counts today and the rest of the cadence keeps its dates.${m.calls.length+m.emails.length+m.lis.length?' Finish today\'s list first.':''}</p>`;
     if (UI.ahead) h += n ? [...A.calls.map(it=>taskCall(it,all)), ...A.emails.map(it=>taskEmail(it,all)), ...A.lis.map(it=>taskLi(it,all))].join('') : `<div class="empty">Nothing due ${prettyDate(A.date)}.</div>`; }
@@ -1925,9 +1956,9 @@ function renderToday(){
 }
 /* ---------- Focus mode: one task at a time, keyboard first ---------- */
 const FOCUS_KEYS = {
-  call:['No answer','Left voicemail','Connected','Gatekeeper','Call back','Meeting booked','Wrong number','Not the right person','Do not call'],
-  email:['Sent','Replied','Meeting booked','Bounced','Opted out'],
-  linkedin:['Request sent','Message sent','Followed','Follow requested','Accepted','Replied'],
+  call:['No answer','Left voicemail','Connected','Gatekeeper','Call back','Meeting booked'],
+  email:['Sent','Replied','Meeting booked','Bounced'],
+  linkedin:['Request sent','Message sent','Accepted','Replied'],
 };
 function focusList(m){
   const t=m.t, ord=x=>[...x.filter(it=>it.due<t), ...x.filter(it=>it.due>=t)];
@@ -2033,10 +2064,11 @@ function who(c, all){
   <span class="small muted">${esc(c.title)}</span><br><span class="small">${esc(co.name)}${co.state?' · '+esc(co.state):''}${co.trigger?` · <span class="tag good">${esc(co.trigger)}</span>`:''}</span>`;
 }
 function stepLine(it){ const late=daysBetween(it.due,todayStr()), moved=it.c.defer&&it.c.defer[it.step.id]; return `<b>${esc(it.step.label)}</b>${late>0?` <span class="tag bad">${late}d overdue</span>`:late<0?` <span class="tag">due ${prettyDate(it.due)}</span>`:''}${it.c.rolled&&it.c.rolled[it.step.id]&&late<=0?` <span class="tag warn" title="Not marked on ${esc(prettyDate(it.c.rolled[it.step.id].from))}, so it moved here by itself">moved from ${esc(prettyDate(it.c.rolled[it.step.id].from).split(',')[0])}, ${esc(prettyDate(it.c.rolled[it.step.id].from).split(', ')[1]||'')}</span>`:moved&&late<=0?' <span class="tag warn">moved</span>':''}${it.behind?` <span class="tag">+${it.behind} more behind</span>`:''}<br><span class="small muted">${TRACK_LABEL[it.c.track]||'Cold cadence'}${it.c.track==='nurture'&&it.c.cycle?` · round ${it.c.cycle.round} of ${it.c.cycle.of||DB.settings.sprint?.rounds||3}`:` · day ${it.step.day}`}</span>`; }
-function liOutcomes(st){ return OUTCOMES.linkedin.map(o=> o==='Message sent' && String(st.li||'').startsWith('connect') ? 'Request sent' : o); }
+/* Connection-request steps offer both: send the request, or (open profiles that need no follow or connection) just message them. */
+function liOutcomes(st){ return String(st.li||'').startsWith('connect') ? ['Request sent', ...OUTCOMES.linkedin] : OUTCOMES.linkedin; }
 const outLabel = (it, o) => { if (it.step.ch==='linkedin' && o==='Message sent'){ const n=liMsgCount(it.c); return n ? `Follow-up ${n} sent` : '1st message sent'; } return o; };
 function outBtns(it){ const outs = it.step.ch==='linkedin' ? liOutcomes(it.step) : OUTCOMES[it.step.ch], ln=lastNote(it.c);
-  return `${ln?`<div class="lastnote full" title="${esc(it.c.notes)}">📝 ${esc(ln)}</div>`:''}<div class="qnote full"><input type="text" data-qnote="${it.c.id}" placeholder="Note (saved with the outcome you click), e.g. retired; new HR manager is Dana, left her a voicemail" maxlength="400"><button class="btn sm" data-act="saveNote" data-id="${it.c.id}">Save note</button></div><div class="outs full">${outs.map(o=>`<button class="btn sm ${['Connected','Meeting booked','Replied'].includes(o)?'good':['Do not call','Opted out','Wrong number','Bounced'].includes(o)?'bad':''}" data-act="log" data-id="${it.c.id}" data-step="${it.step.id}" data-out="${esc(o)}">${esc(outLabel(it,o))}</button>`).join('')}${it.step.ch==='linkedin'?`<button class="btn sm" data-act="noLi" data-id="${it.c.id}" title="Turn this contact's remaining LinkedIn touches into emails">No LinkedIn profile</button><button class="btn sm bad" data-act="liDisabled" data-id="${it.c.id}" title="Their profile says the recipient has disabled all communications: remaining LinkedIn touches become emails">Messaging disabled</button>`:''}${it.due<=todayStr()?`<button class="btn sm" data-act="defer" data-id="${it.c.id}" data-step="${it.step.id}" title="Move just this touch to the next business day" style="margin-left:auto">Do tomorrow</button>`:''}</div>`; }
+  return `${ln?`<div class="lastnote full" title="${esc(it.c.notes)}">📝 ${esc(ln)}</div>`:''}<div class="qnote full"><input type="text" data-qnote="${it.c.id}" placeholder="Note (saved with the outcome you click), e.g. retired; new HR manager is Dana, left her a voicemail" maxlength="400"><button class="btn sm" data-act="saveNote" data-id="${it.c.id}">Save note</button></div><div class="outs full">${outs.filter(o=>OUT_MAIN[it.step.ch].includes(o) || (o==='Not interested' && it.c.liState==='Connected')).map(o=>`<button class="btn sm ${['Connected','Meeting booked','Replied'].includes(o)?'good':['Bounced','Not interested'].includes(o)?'bad':''}" data-act="log" data-id="${it.c.id}" data-step="${it.step.id}" data-out="${esc(o)}">${esc(outLabel(it,o))}</button>`).join('')}<select class="moreOut" data-id="${it.c.id}" data-step="${it.step.id}" aria-label="More outcomes"><option value="">More…</option>${OUT_MORE[it.step.ch].map(([g,os])=>`<optgroup label="${esc(g)}">${os.filter(o=>(o.startsWith('act:') || outs.includes(o) || it.step.ch==='email') && !(o==='Not interested' && it.c.liState==='Connected')).map(o=>`<option value="${esc(o)}">${esc(OUT_SHORT[o]||o)}</option>`).join('')}</optgroup>`).join('')}</select>${it.due<=todayStr()?`<button class="btn sm" data-act="defer" data-id="${it.c.id}" data-step="${it.step.id}" title="Move just this touch to the next business day" style="margin-left:auto">Do tomorrow</button>`:''}</div>`; }
 function phoneBtns(c){ return [c.directPhone&&`<a class="btn sm" href="${telHref(c.directPhone)}">Direct ${esc(c.directPhone)}</a>${c.phoneBad?' <span class="tag bad">flagged wrong</span>':''}`, c.businessPhone&&`<a class="btn sm" href="${telHref(c.businessPhone)}">Business ${esc(c.businessPhone)}</a>`].filter(Boolean).join(' ') || '<span class="tag bad">No phone on file</span>'; }
 function brushOffs(c){ const ks=Object.keys(TALK).filter(k=>/^T/.test(k)); if (!ks.length) return '';
   return `<details class="script full"><summary>Brush-offs: ledge, mirror, pause, ask</summary>${ks.map(k=>`<div class="small" style="margin:4px 0"><b>${esc(TALK[k].name)}</b><br>${sayHtml(fill(TALK[k].text,c))}</div>`).join('')}</details>`; }
@@ -2420,7 +2452,7 @@ function renderSettingsBody(){
 
 /* ---------- KPIs tab ----------
    Everything here is computed from what you already log: touches, statuses, bounces. Nothing new to enter. */
-const RESPONSE = new Set(['Connected','Call back requested','Meeting booked','Replied']);
+const RESPONSE = new Set(['Connected','Call back requested','Meeting booked','Replied','Not interested']);
 const CONVO = new Set(['Connected','Call back requested','Meeting booked']);  /* a live phone conversation with the prospect */
 const weekStart = D => { const d=parseYmd(D); d.setDate(d.getDate()-((d.getDay()+6)%7)); return ymd(d); };
 const KPI_PERIODS = [['week','This week'],['last','Last week'],['30','Last 30 days'],['90','Last 90 days'],['all','All time']];
@@ -2712,6 +2744,7 @@ function renderModal(){
   if (m && m.type==='emailBack') return renderEmailBack(host);
   if (m && m.type==='addLead') return renderAddLead(host);
   if (m && m.type==='left') return renderLeft(host, m);
+  if (m && m.type==='signed') return renderSigned(host, m);
   const c=m && DB.contacts.find(x=>x.id===m.cid);
   if (!c){ host.innerHTML=''; return; }
   const z=zoneInfo(c).zone;
@@ -2758,6 +2791,31 @@ function renderAddLead(host){
     <p class="small muted">Referrals and inbound leads rank first in the queue (not in playbook, review).</p>
     <div style="display:flex;gap:8px"><button class="btn primary" data-act="addLeadSave">Add lead</button><button class="btn" data-act="closeModal">Cancel</button></div></div>`;
   setTimeout(()=>$('#al_name')?.focus(), 0);
+}
+/* "Just signed with another provider": record who and when, set the renewal, and come back 90 days before it (playbook Sequence F). */
+function signedDates(signed, months){ const renewal=addDays(signed, Math.round((+months||12)*30.44)); let back=addDays(renewal,-90); const min=addDays(todayStr(),30); return {renewal, back: nextBiz(back<min?min:back)}; }
+function renderSigned(host, m){
+  const c=DB.contacts.find(x=>x.id===m.cid); if (!c){ UI.modal=null; return; } const co=company(c), t=todayStr(), d=signedDates(t,12);
+  host.innerHTML = `<div class="modal-back" data-act="closeModal"></div><div class="modal">
+    <h3 style="margin-top:0">${esc(c.name)} just signed with another provider</h3><p class="small muted" style="margin-top:0">${esc(co.name)}. The cadence stops for everyone at the company, and they come back 90 days before the renewal, as the playbook re-engages.</p>
+    <div class="fields"><label>Provider<input type="text" id="sg_prov" value="${esc(co.provider||'')}" placeholder="e.g. First Advantage"></label>
+      <label>Signed on<input type="date" id="sg_date" value="${t}"></label>
+      <label>Contract length<select id="sg_len"><option value="12" selected>12 months (assumed if unknown; not in playbook, review)</option><option value="24">24 months</option><option value="36">36 months</option></select></label>
+      <label>Renewal date (if they said)<input type="date" id="sg_ren" value=""></label>
+      <label style="grid-column:1/-1">Note<input type="text" id="sg_note" placeholder="e.g. signed last month; unhappy with turnaround already"></label></div>
+    <p class="small" id="sg_out">Renewal about <b>${prettyDate(d.renewal)}</b>; back on Today on <b>${prettyDate(d.back)}</b>.</p>
+    <div style="display:flex;gap:8px"><button class="btn primary" data-act="signedSave">Save</button><button class="btn" data-act="closeModal">Cancel</button></div></div>`;
+  const upd=()=>{ const ren=$('#sg_ren').value; const dd = ren ? {renewal:ren, back:nextBiz(addDays(ren,-90)<addDays(todayStr(),30)?addDays(todayStr(),30):addDays(ren,-90))} : signedDates($('#sg_date').value||t, $('#sg_len').value); $('#sg_out').innerHTML=`Renewal about <b>${prettyDate(dd.renewal)}</b>; back on Today on <b>${prettyDate(dd.back)}</b>.`; };
+  ['#sg_date','#sg_len','#sg_ren'].forEach(s=>$(s).addEventListener('change',upd));
+}
+function saveSigned(){
+  const m=UI.modal, c=DB.contacts.find(x=>x.id===m.cid); if (!c) return; const co=company(c), vals={}; for (const k of ['prov','date','len','ren','note']) vals[k]=($('#sg_'+k)?.value||'').trim(); const v=id=>vals[id];
+  const ren=v('ren'), d = ren ? {renewal:ren, back:nextBiz(addDays(ren,-90)<addDays(todayStr(),30)?addDays(todayStr(),30):addDays(ren,-90))} : signedDates(v('date')||todayStr(), v('len'));
+  if (v('prov')) co.provider=v('prov'); co.renewalDate=d.renewal;
+  c.status='Nurture'; c.revisitDate=d.back; c.cycle=null; c.signedElsewhere={provider:v('prov'), date:v('date')||todayStr(), renewal:d.renewal};
+  addNote(c, `just signed with ${v('prov')||'another provider'}${v('note')?'. '+v('note'):''}. Renewal ~${prettyDate(d.renewal)}`, 'Spoke');
+  let k=0; for (const o of DB.contacts) if (o!==c && o.companyKey===c.companyKey && ['Paused','Attempting','New'].includes(o.status)){ o.status='Nurture'; o.revisitDate=d.back; o.cycle=null; o.pauseReason=''; touch(o); k++; }
+  touch(c); UI.modal=null; save(); render(); toast(`${co.name}: signed with ${v('prov')||'another provider'}. Back on ${prettyDate(d.back)}, 90 days before renewal${k?`; ${k} colleague${k===1?'':'s'} too`:''}.`);
 }
 const LEFT_REASONS = ['Retired','Left for another company','Moved to another location','No longer in this role','Other'];
 function renderLeft(host, m){
@@ -2853,14 +2911,11 @@ document.addEventListener('click', e=>{
   switch(act){
     case 'tab': UI.tab=el.dataset.tab; UI.drawer=null; render(); window.scrollTo(0,0); break;
     case 'export': exportTracker(); break;
-    case 'log': if (c){ const out=el.dataset.out, note=(el.closest('.task')?.querySelector(`[data-qnote="${c.id}"]`)?.value||'').trim();
-      if (out==='Call back'){ if (note) addNote(c, note, 'Call back'); UI.modal={type:'callback', cid:c.id, stepId:el.dataset.step}; renderModal(); }
-      else if (out==='Bounced'){ if (note) addNote(c, note, 'Bounced'); UI.modal={type:'bounce', cid:c.id, stepId:el.dataset.step}; renderModal(); }
-      else if (out==='Contact left'){ UI.modal={type:'left', cid:c.id, stepId:el.dataset.step, note}; renderModal(); }
-      else if (out==='Sent · out of office' || out==='Sent · verify (Sendio)'){ logOutcome(c, el.dataset.step, 'Sent', note); UI.modal={type:'reply', cid:c.id, detected: out.includes('Sendio') ? {type:'verify', service:'Sendio'} : {type:'ooo'}}; renderModal(); }
-      else logOutcome(c, el.dataset.step, out, note); } break;
+    case 'log': if (c) handleLog(c, el.dataset.step, el.dataset.out, el); break;
     case 'verifyMark': if (c){ const co=company(c); if (co.emailVerify){ co.emailVerify.status='sent'; co.emailVerify.date=todayStr(); } touch(c); save(); render(); toast(`${co.name}: verification sent`); } break;
     case 'verifyClear': if (c){ const co=company(c); delete co.emailVerify; touch(c); save(); render(); toast(`${co.name}: verification cleared`); } break;
+    case 'signedOpen': if (c){ UI.modal={type:'signed', cid:c.id}; renderModal(); } break;
+    case 'signedSave': saveSigned(); break;
     case 'saveNote': if (c){ const inp=el.closest('.qnote')?.querySelector('input'); if (addNote(c, inp?.value, 'Note')){ save(); render(); toast('Note saved on '+c.name); } else inp?.focus(); } break;
     case 'contactLeft': if (c){ UI.modal={type:'left', cid:c.id, stepId:'', note:''}; renderModal(); } break;
     case 'leftSave': saveLeft(); break;
@@ -2936,8 +2991,7 @@ document.addEventListener('click', e=>{
     case 'dismissShift': UI.shiftUndo=null; render(); break;
     case 'liWait': if (c){ const msg=liRespond(c, el.dataset.out); render(); toast(msg); } break;
     case 'liPosts': if (c){ c.liNoPosts = el.dataset.v==='1'; touch(c); save(); render(); toast(c.liNoPosts ? `${firstName(c)}: no posts, so the connection request doesn't mention one` : `${firstName(c)}: back to the post request`); } break;
-    case 'liDisabled': if (c){ const n=pendingSteps(c).filter(x=>x.ch==='linkedin').length; c.noLi=true; c.liState='Messaging disabled'; c.liWait=null; addNote(c, 'recipient has disabled all communications', 'LinkedIn'); touch(c); save(); render();
-      toast(`${firstName(c)} has disabled LinkedIn messages: ${n} LinkedIn touch${n===1?'':'es'} became email${n===1?'':'s'}. Undo in the contact card (LinkedIn).`); } break;
+    case 'liDisabled': if (c) actLiDisabled(c); break;
     case 'noLi': if (c){ const n=pendingSteps(c).filter(x=>x.ch==='linkedin').length; c.noLi=true; c.liState='No profile'; c.liWait=null; touch(c); save(); render();
       const ems=pendingSteps(c).filter(x=>x.fromLi); toast(`No LinkedIn profile: ${n} LinkedIn touch${n===1?'':'es'} for ${firstName(c)} became email${n===1?'':'s'}${ems.length?' ('+ems.map(x=>'day '+x.day).join(', ')+')':''}. Undo in the contact card.`); } break;
     case 'emailBack': UI.bounceHits=[]; UI.modal={type:'emailBack'}; renderModal(); break;
@@ -3055,6 +3109,7 @@ document.addEventListener('change', async e=>{
   if (d.filter && d.filter!=='q'){ if (d.filter==='sort') UI.sort=el.value; else UI.f[d.filter]= d.filter==='minOpt' ? +el.value : el.value; render(); return; }
   if (d.map){ UI.draft.map[d.map]=el.value; render(); return; }
   if (el.id==='impSource' && UI.draft){ UI.draft.source=el.value; return; }
+  if (el.classList.contains('moreOut') && el.value){ const c=DB.contacts.find(x=>x.id===el.dataset.id); const v=el.value; el.value=''; if (c) handleLog(c, el.dataset.step, v, el); return; }
   if (el.dataset.act2==='openDeals' && UI.draft){ UI.draft.openDeals=el.checked; render(); return; }
   if (el.id==='bulkLost' && el.value){ let n=0; for (const x of DB.contacts) if (UI.selected.has(x.id)){ const L=x.lost||{}; const rs=x.source==='Closed lost' ? [...lossReasons(L).filter(k=>k!=='other' && k!==el.value), el.value] : [el.value];
       if (x.source!=='Closed lost' && ['Attempting','Connected','Discovery booked','Paused','New'].includes(x.status)){ x.status='Nurture'; x.pauseReason=''; } applyLost(x, {reasons:rs, date:L.date||todayStr()}); x.lost.reasons=rs; x.lost.cat=rs[0]; if (x.status==='Nurture') x.revisitDate=lostFollowUp(x).date; touch(x); n++; }
