@@ -501,15 +501,15 @@ const CH_LABEL = {call:'Call', email:'Email', linkedin:'LinkedIn'};
 const OUT_MAIN = {call:['Connected','Meeting booked','Call back','Left voicemail','No answer','Gatekeeper','Skip'],
   email:['Sent','Replied','Meeting booked','Bounced','Skip'], linkedin:['Request sent','Message sent','Accepted','Replied','Skip']};
 const OUT_MORE = {
-  call:[["Couldn't reach them",['Away until','Voicemail full','Not in dialer','Not in service','Wrong number']],["Spoke with them",['Signed elsewhere','In-house checks']],["Wrong person or stop",['Not the right person','Contact left','Do not call']]],
+  call:[["Couldn't reach them",['Away until','Voicemail full','Business dialer','Not in dialer','Not in service','Wrong number']],["Spoke with them",['Signed elsewhere','In-house checks']],["Wrong person or stop",['Not the right person','Contact left','Do not call']]],
   email:[["Auto-reply",['Sent · out of office','Sent · verify (Sendio)']],["Stop",['Opted out']]],
   linkedin:[["Their answer",['Not interested']],["Sent another way",['InMail sent','Sent free']],["Couldn't connect",['Followed','Commented','Follow requested']],["Can't use LinkedIn",['act:noLi','act:liDisabled']]]};
-const OUT_SHORT = {'InMail sent':'InMail sent (1 credit)','Commented':'Commented on a post','Sent free':'Sent free (connected or open profile)','In-house checks':'They run checks in-house','Away until':'Away until a date (greeting or someone said so)','Voicemail full':'Voicemail full','Not in dialer':'Not found in dial-by-name directory','Not in service':'Number not in service','Signed elsewhere':'Just signed with another provider','act:noLi':'No LinkedIn profile','act:liDisabled':'Messaging disabled (recipient blocks all messages)'};
+const OUT_SHORT = {'Business dialer':'Business dialer: no contact (automated line, no way to reach them)','InMail sent':'InMail sent (1 credit)','Commented':'Commented on a post','Sent free':'Sent free (connected or open profile)','In-house checks':'They run checks in-house','Away until':'Away until a date (greeting or someone said so)','Voicemail full':'Voicemail full','Not in dialer':'Not found in dial-by-name directory','Not in service':'Number not in service','Signed elsewhere':'Just signed with another provider','act:noLi':'No LinkedIn profile','act:liDisabled':'Messaging disabled (recipient blocks all messages)'};
 /* Every LinkedIn message has a subject (InMail and Sales Navigator won't send without one); scripts without one get a plain default. */
 const LI_SUBJECT_DEFAULT = {connect4:'HR leaders in [state]', connect1:'your post on [topic]', connect2:'congrats on the new role', connect3:'growth at [Their Company]', voice:'quick voice note'};
 const liSubject = k => (LINKEDIN[k] && LINKEDIN[k].subject) || LI_SUBJECT_DEFAULT[k] || 'quick question, [Prospect]';
 const OUTCOMES = {
-  call: ['Connected','Meeting booked','Call back','Left voicemail','No answer','Gatekeeper','In-house checks','Away until','Voicemail full','Not in dialer','Not in service','Wrong number','Not the right person','Contact left','Signed elsewhere','Do not call','Skip'],
+  call: ['Connected','Meeting booked','Call back','Left voicemail','No answer','Gatekeeper','In-house checks','Away until','Voicemail full','Business dialer','Not in dialer','Not in service','Wrong number','Not the right person','Contact left','Signed elsewhere','Do not call','Skip'],
   email:['Sent','Sent · out of office','Sent · verify (Sendio)','Replied','Meeting booked','Bounced','Opted out','Skip'],
   linkedin:['InMail sent','Sent free','Commented','Message sent','Followed','Follow requested','Accepted','Replied','Not interested','Skip'],
 };
@@ -547,7 +547,7 @@ const DEFAULT_SETTINGS = {
   spacing:'biz',
   sigOn:false,
   autoRoll:true,
-  inmail:{monthly:50, tier1Min:75000},
+  inmail:{monthly:50, tier1Min:75000, renewDay:14},
   alerts:{on:false, lead:5, sound:true},
   hubspot:{lifecycle:'', status:{}},
   sprint:{on:true, calls:3, emails:3, li:1, days:14, rounds:3},
@@ -870,7 +870,7 @@ function unroll(D){ /* "I was off D": put tasks rolled from D back, so the day-o
     for (const [id, r] of Object.entries(c.rolled)) if (r.from===D){ if (r.prev) c.defer[id]=r.prev; else if (c.defer) delete c.defer[id]; delete c.rolled[id]; n++; } }
   return n; }
 function autoCycle(){
-  autoRoll(); emailGuard();
+  autoRoll(); emailGuard(); liGuard();
   const R=sprintRule(), me=DB.settings.homeRep || (DB.settings.currentRep!=='all' ? DB.settings.currentRep : ''); if (!R || !me) return;
   const t=todayStr(); let ended=0, started=0;
   for (const c of DB.contacts){
@@ -963,25 +963,52 @@ let IM_CACHE=null;
 function inmailState(){
   if (IM_CACHE && IM_CACHE.day===todayStr() && IM_CACHE.rep===DB.settings.currentRep) return IM_CACHE.v;
   const v=inmailState0(); IM_CACHE={day:todayStr(), rep:DB.settings.currentRep, v}; return v; }
+/* Sales Navigator credits renew on the same day each month (Settings → LinkedIn InMails, default the 14th). */
+function inmailCycle(d){ const day=+(DB.settings.inmail||{}).renewDay||14, p=parseYmd(d);
+  const at=(y,m)=>{ const last=new Date(y,m+1,0).getDate(); return ymd(new Date(y,m,Math.min(day,last))); };
+  let start=at(p.getFullYear(), p.getMonth()); if (start>d){ const q=new Date(p.getFullYear(), p.getMonth()-1, 1); start=at(q.getFullYear(), q.getMonth()); }
+  const s0=parseYmd(start), next=at(s0.getFullYear(), s0.getMonth()+1); return {start, end:addDays(next,-1), renew:next}; }
 function inmailState0(){
-  const me=DB.settings.currentRep!=='all' ? DB.settings.currentRep : (DB.settings.homeRep||''), t=todayStr(), mo=monthOf(t), budget=+(DB.settings.inmail||{}).monthly||0;
-  let used=0, replied=0;
-  for (const c of DB.contacts){ if (me && c.owner!==me) continue; for (const x of allTouches(c)) if (x.inmail){ if (monthOf(x.date)===mo) used++; if (x.inmailReplied && daysBetween(x.date, x.inmailReplied)<=90 && monthOf(x.inmailReplied)===mo) replied++; } }
-  let left=0, d=t; const end=mo+'-31'; while (d<=end && monthOf(d)===mo){ if (nextBiz(d)===d) left++; d=addDays(d,1); }
-  /* Tier 1 message steps still to come this month, for contacts who haven't accepted: credits kept for them */
+  const me=DB.settings.currentRep!=='all' ? DB.settings.currentRep : (DB.settings.homeRep||''), t=todayStr(), I=DB.settings.inmail||{}, budget=+I.monthly||0, cy=inmailCycle(t);
+  const inCy = d => d>=cy.start && d<=cy.end;
+  let used=0, replied=0, today=0;
+  for (const c of DB.contacts){ if (me && c.owner!==me) continue; for (const x of allTouches(c)) if (x.inmail){ if (inCy(x.date)) used++; if (x.date===t) today++; if (x.inmailReplied && daysBetween(x.date, x.inmailReplied)<=90 && inCy(x.inmailReplied)) replied++; } }
+  let left=0; for (let d=t; d<=cy.end; d=addDays(d,1)) if (nextBiz(d)===d) left++;
   let t1due=0; for (const c of DB.contacts){ if ((me && c.owner!==me) || c.status!=='Attempting' || liGrade(c)!==1 || c.liState==='Connected' || c.openProfile) continue;
-    if (pendingSteps(c).some(s=>isMsgStep(s) && monthOf(dueDate(c,s))===mo)) t1due++; }
-  const remaining=Math.max(0, budget-used);
-  return {budget, used, replied, remaining, daysLeft:left, perDay: left ? Math.ceil(remaining/left) : remaining, t1due, spareForT2: Math.max(0, remaining-t1due)};
+    if (pendingSteps(c).some(s=>isMsgStep(s) && dueDate(c,s)<=cy.end)) t1due++; }
+  /* "Credits left" typed from Sales Navigator for this cycle overrides the app's own count */
+  const ov = I.override && I.override.cycle===cy.start ? I.override : null;
+  const remaining = ov ? Math.max(0, ov.left - Math.max(0, used-ov.usedAt)) : Math.max(0, budget-used);
+  const perDay = left ? Math.ceil(remaining/left) : remaining;
+  return {budget, used, replied, remaining, today, daysLeft:left, perDay, allowToday:Math.max(0, Math.min(remaining, perDay-today)), t1due, spareForT2: Math.max(0, remaining-t1due), cycle:cy, override:!!ov,
+    pause: I.pauseUntil && I.pauseUntil>t ? I.pauseUntil : ''};
 }
-/* How a LinkedIn message step goes out: free (accepted or open profile), as an InMail (tier and credits allowing), or follow and comment. */
+/* Today's InMails go to the best-ranked contacts first, at the pace that spreads the cycle's credits over its working days.
+   Tier 1 beyond today's share waits a day; with no credits left it waits for the renewal. Tier 2 beyond its share follows and comments. */
+let IM_ALLOW=new Set();
 function liMode(c, st, im){
   if (!isMsgStep(st)) return 'connect';
   if (c.liState==='Connected' || c.openProfile) return 'free';
   im = im || inmailState(); const g=liGrade(c);
-  if (g===1) return im.remaining>0 ? 'inmail' : 'follow';
-  if (g===2) return im.spareForT2>0 ? 'inmail' : 'follow';
+  if (g===1) return im.remaining>0 && (IM_ALLOW.has(c.id) || im.allowToday>0 && !IM_ALLOW.size) ? 'inmail' : 'wait';
+  if (g===2) return im.spareForT2>0 && IM_ALLOW.has(c.id) ? 'inmail' : 'follow';
   return 'follow';
+}
+function liGuard(){
+  const me=DB.settings.homeRep || (DB.settings.currentRep!=='all' ? DB.settings.currentRep : ''); if (!me) return;
+  const T=todayStr(), N=nextBiz(addDays(T,1)), im=inmailState0(), R=nextBiz(im.cycle.renew); let n=0; IM_ALLOW=new Set();
+  const due=[]; for (const c of DB.contacts){ if (c.owner!==me || c.status!=='Attempting' || c.noLi) continue;
+    for (const st of pendingSteps(c)) if (st.ch==='linkedin' && dueDate(c,st)<=T) due.push({c, st}); }
+  const hold=(c, st, to, why)=>{ (c.defer ||= {})[st.id]=to; (c.held ||= {})[st.id]={why, on:T}; if (c.rolled && c.rolled[st.id]) delete c.rolled[st.id]; touch(c); n++; };
+  if (im.pause){ for (const {c, st} of due) hold(c, st, nextBiz(im.pause), `LinkedIn paused until ${prettyDate(im.pause)}`); }
+  else {
+    const want=due.filter(({c, st})=>isMsgStep(st) && c.liState!=='Connected' && !c.openProfile && liGrade(c)<3).sort((x,y)=>liRank(x.c)-liRank(y.c));
+    let allow=im.allowToday, t2=im.spareForT2;
+    for (const {c, st} of want){ const g=liGrade(c);
+      if (allow>0 && (g===1 || t2>0)){ IM_ALLOW.add(c.id); allow--; if (g===2) t2--; continue; }
+      if (g===1) hold(c, st, im.remaining>0 ? N : R, im.remaining>0 ? "InMail pace: today's share is used" : `out of InMail credits until ${prettyDate(im.cycle.renew)}`); }
+  }
+  if (n){ save(); }
 }
 function resolveLi(c, st){
   if (st.li==='connect'){ const t=company(c).trigger; let k = t==='New HR leader' ? 'connect2' : (t==='Hiring surge'||t==='New state / locations') ? 'connect3' : 'connect1';
@@ -1063,6 +1090,7 @@ function applyOutcome(c, stepId, outcome, date, quiet){
   else if (outcome==='Contact left'){ c.status='Unqualified'; c.unqualReason='Left: '+((c.left&&c.left.reason)||'no longer there'); msg=`${c.name} marked as no longer there`; }
   else if (outcome==='Wrong number'){ c.phoneBad=true; }
   else if (outcome==='Not in service'){ c.phoneBad=true; msg=`${c.name}: number not in service, flagged. Calls carry on to any other number; emails and LinkedIn continue.`; }
+  else if (outcome==='Business dialer'){ c.bizDialer=todayStr(); msg=`${company(c).name}'s business line is an automated dialer with no way to reach ${c.first||c.name}. ${c.directPhone?'Next calls: try the direct number first.':'No direct number on file: find one (research list), or rely on email and LinkedIn.'}`; }
   else if (outcome==='Not in dialer'){ msg=`${c.name} isn't in their dial-by-name directory. They may have left: check LinkedIn, or ask the operator. If they're gone, use Contact left.`; }
   else if (outcome==='Not interested'){ c.status='Nurture'; c.revisitDate=addDays(date,180); c.liWait=null; msg=`${c.name}: not interested. Cadence stopped; revisit in 6 months.`; }
   else if (outcome==='Bounced'){ c.emailBad=true; (c.bounces ||= []).push({date, address:c.email, reason:'hard', step:stepId}); }
@@ -1650,7 +1678,7 @@ function buildTrackerWorkbook(){
       'Discovery Date':c.discoveryDate||'','Pause Reason':c.pauseReason,'Phone Bad':yn(c.phoneBad),'Email Bad':yn(c.emailBad),'Last Contacted (import)':c.lastContacted,
       'Prior Status (import)':c.priorStatus,'Notes':c.notes,'Email Blocked':yn(c.emailBlocked),
       'Next Call-back':(()=>{ const r=pendingRecalls(c)[0]; return r?`${r.date} ${fmtHour(hrs(r.time))} (their ${r.their})`:''; })(),
-      'Call-backs (data)':JSON.stringify(c.recalls||[]),'Bounces (data)':JSON.stringify(c.bounces||[]),'Both Reps Had It':c.alsoOn||'','Referred By':c.referredBy||'','LinkedIn Status':c.liState||'','LinkedIn Since':c.liSince||'','Best Time':c.bestTime||'','Work Despite HubSpot':c.hsOverride?'Yes':'','HubSpot Exported':c.hsExported||'','LinkedIn Waiting (data)':c.liWait?JSON.stringify(c.liWait):'','Unqualified Reason':c.unqualReason||'','Left (data)':c.left?JSON.stringify(c.left):'','Away Until':c.awayUntil||'','Open Profile':yn(c.openProfile),'They Call (data)':c.theyCall?JSON.stringify(c.theyCall):'','Replaces':c.replaces||'','Nurture (data)':(c.cycle||c.parked)?JSON.stringify({cycle:c.cycle||null, parked:c.parked||''}):'','Created At':c.createdAt?new Date(c.createdAt).toISOString():'','Moved Steps (data)':c.defer&&Object.keys(c.defer).length?JSON.stringify(c.defer):'','Rolled (data)':c.rolled&&Object.keys(c.rolled).length?JSON.stringify(c.rolled):'','Held (data)':c.held&&Object.keys(c.held).length?JSON.stringify(c.held):'','Loss Reason':c.lost?LOSS_CATS[c.lost.cat||'other']:'','Lost On':c.lost?.date||'','Quoted Amount':c.lost?.amount||'','Lost To':c.lost?.competitor||'','Closed-lost (data)':c.lost?JSON.stringify(c.lost):'','Updated At':new Date(c.updatedAt||Date.now()).toISOString()}; });
+      'Call-backs (data)':JSON.stringify(c.recalls||[]),'Bounces (data)':JSON.stringify(c.bounces||[]),'Both Reps Had It':c.alsoOn||'','Referred By':c.referredBy||'','LinkedIn Status':c.liState||'','LinkedIn Since':c.liSince||'','Best Time':c.bestTime||'','Work Despite HubSpot':c.hsOverride?'Yes':'','HubSpot Exported':c.hsExported||'','LinkedIn Waiting (data)':c.liWait?JSON.stringify(c.liWait):'','Unqualified Reason':c.unqualReason||'','Left (data)':c.left?JSON.stringify(c.left):'','Away Until':c.awayUntil||'','Business Line Dialer':c.bizDialer||'','Open Profile':yn(c.openProfile),'They Call (data)':c.theyCall?JSON.stringify(c.theyCall):'','Replaces':c.replaces||'','Nurture (data)':(c.cycle||c.parked)?JSON.stringify({cycle:c.cycle||null, parked:c.parked||''}):'','Created At':c.createdAt?new Date(c.createdAt).toISOString():'','Moved Steps (data)':c.defer&&Object.keys(c.defer).length?JSON.stringify(c.defer):'','Rolled (data)':c.rolled&&Object.keys(c.rolled).length?JSON.stringify(c.rolled):'','Held (data)':c.held&&Object.keys(c.held).length?JSON.stringify(c.held):'','Loss Reason':c.lost?LOSS_CATS[c.lost.cat||'other']:'','Lost On':c.lost?.date||'','Quoted Amount':c.lost?.amount||'','Lost To':c.lost?.competitor||'','Closed-lost (data)':c.lost?JSON.stringify(c.lost):'','Updated At':new Date(c.updatedAt||Date.now()).toISOString()}; });
   const T = []; for (const c of DB.contacts) for (const t of allTouches(c)) T.push({'PT_ID':c.id,'Contact':c.name,'Company':company(c).name,'Date':t.date,'Step ID':t.step,'Channel':CH_LABEL[t.ch]||t.ch,'Step':t.label,'Outcome':t.outcome,'Logged At':t.at,'Logged From':t.sheet?'Run sheet':'App','Earlier cadence':t.archived?(t.track||'cold'):'','Reply Logged':t.replyDate||'','Auto-reply':t.autoReply||'','InMail':t.inmail?'Yes':'','InMail Replied':t.inmailReplied||'','Follow Mode':t.followMode?'Yes':''});
   const K = Object.values(DB.companies).map(co=>({'Company Key':co.key,'Company':co.name,'State':co.state,'City':co.city,'Employees':co.employees,'Est Annual Hires':co.annualHires,'Industry':co.industry,
     'Mid-sized':isMid(co)?'Yes':'','Mid-sized Override':co.midOverride===true?'Yes':co.midOverride===false?'No':'','Higher-touch':yn(co.higherTouch),'Organized':yn(co.organized),
@@ -1738,7 +1766,7 @@ function restoreTracker(wb){
       tzOverride:ZONES[r['TZ Override']]?r['TZ Override']:'', startDate:toYmd(r['Cadence Start']), spacing:['biz','cal'].includes(r['Cadence Spacing'])?r['Cadence Spacing']:'', revisitDate:toYmd(r['Revisit Date']),
       discoveryDate:r['Discovery Date']||'', pauseReason:r['Pause Reason']||'', phoneBad:fromYn(r['Phone Bad']), emailBad:fromYn(r['Email Bad']), lastContacted:r['Last Contacted (import)']||'',
       priorStatus:r['Prior Status (import)']||'', notes:r['Notes']||'', touches:(touches[id]||[]).filter(t=>!t.archived), pastTouches:(touches[id]||[]).filter(t=>t.archived).map(({archived,...t})=>({...t, archived:true})), emailBlocked:fromYn(r['Email Blocked']),
-      recalls:safeJson(r['Call-backs (data)'],[]), bounces:safeJson(r['Bounces (data)'],[]), alsoOn:r['Both Reps Had It']||'', referredBy:r['Referred By']||'', liState:r['LinkedIn Status']||'', liNoPosts:fromYn(r['LinkedIn No Posts']), liSince:r['LinkedIn Since']||'', bestTime:r['Best Time']||'', hsOverride:r['Work Despite HubSpot']==='Yes', hsExported:r['HubSpot Exported']||'', noLi:r['LinkedIn Status']==='No profile', ...(r['LinkedIn Waiting (data)']?{liWait:(()=>{ try { return JSON.parse(r['LinkedIn Waiting (data)']); } catch(e){ return null; } })()}:{}), unqualReason:r['Unqualified Reason']||'', left:(()=>{ try { return r['Left (data)']?JSON.parse(r['Left (data)']):null; } catch(e){ return null; } })(), replaces:r['Replaces']||'', awayUntil:toYmd(r['Away Until'])||'', openProfile:fromYn(r['Open Profile']), theyCall:(()=>{ try { return r['They Call (data)']?JSON.parse(r['They Call (data)']):null; } catch(e){ return null; } })(), ...(()=>{ try { const x=r['Nurture (data)']?JSON.parse(r['Nurture (data)']):null; return x?{cycle:x.cycle||null, parked:x.parked||''}:{cycle:null, parked:''}; } catch(e){ return {cycle:null, parked:''}; } })(), createdAt:(r['Created At']&&Date.parse(r['Created At']))||Date.now(), ...(r['Held (data)']?{held:(()=>{ try { return JSON.parse(r['Held (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Rolled (data)']?{rolled:(()=>{ try { return JSON.parse(r['Rolled (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Moved Steps (data)']?{defer:(()=>{ try { return JSON.parse(r['Moved Steps (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Closed-lost (data)']?{lost:(()=>{ try { return JSON.parse(r['Closed-lost (data)']); } catch(e){ return undefined; } })()}:{}), updatedAt:Date.parse(r['Updated At'])||0};
+      recalls:safeJson(r['Call-backs (data)'],[]), bounces:safeJson(r['Bounces (data)'],[]), alsoOn:r['Both Reps Had It']||'', referredBy:r['Referred By']||'', liState:r['LinkedIn Status']||'', liNoPosts:fromYn(r['LinkedIn No Posts']), liSince:r['LinkedIn Since']||'', bestTime:r['Best Time']||'', hsOverride:r['Work Despite HubSpot']==='Yes', hsExported:r['HubSpot Exported']||'', noLi:r['LinkedIn Status']==='No profile', ...(r['LinkedIn Waiting (data)']?{liWait:(()=>{ try { return JSON.parse(r['LinkedIn Waiting (data)']); } catch(e){ return null; } })()}:{}), unqualReason:r['Unqualified Reason']||'', left:(()=>{ try { return r['Left (data)']?JSON.parse(r['Left (data)']):null; } catch(e){ return null; } })(), replaces:r['Replaces']||'', awayUntil:toYmd(r['Away Until'])||'', bizDialer:toYmd(r['Business Line Dialer'])||'', openProfile:fromYn(r['Open Profile']), theyCall:(()=>{ try { return r['They Call (data)']?JSON.parse(r['They Call (data)']):null; } catch(e){ return null; } })(), ...(()=>{ try { const x=r['Nurture (data)']?JSON.parse(r['Nurture (data)']):null; return x?{cycle:x.cycle||null, parked:x.parked||''}:{cycle:null, parked:''}; } catch(e){ return {cycle:null, parked:''}; } })(), createdAt:(r['Created At']&&Date.parse(r['Created At']))||Date.now(), ...(r['Held (data)']?{held:(()=>{ try { return JSON.parse(r['Held (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Rolled (data)']?{rolled:(()=>{ try { return JSON.parse(r['Rolled (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Moved Steps (data)']?{defer:(()=>{ try { return JSON.parse(r['Moved Steps (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Closed-lost (data)']?{lost:(()=>{ try { return JSON.parse(r['Closed-lost (data)']); } catch(e){ return undefined; } })()}:{}), updatedAt:Date.parse(r['Updated At'])||0};
     if (!DB.companies[inc.companyKey]) DB.companies[inc.companyKey]={key:inc.companyKey,name:r['Company']||inc.companyKey,state:r['State']||'',employees:num(r['Employees']),annualHires:num(r['Est Annual Hires']),higherTouch:false,organized:false,midOverride:null,trigger:'',triggerNote:''};
     if (inc.status==='Attempting' && !inc.startDate) inc.status='New';
     let ex=byId.get(id);
@@ -2037,7 +2065,7 @@ function renderToday(){
   h += `<h2 id="sec-emails">2 · Emails <span class="count">${m.emails.length}</span></h2><p class="small muted" style="margin-top:-4px">Sorted: prospects in their best email window right now first (${esc(DB.settings.windows.email)} their time), then east to west. One email per address per day: a second one waits until the next working day.</p>`;
   h += m.emails.length ? m.emails.map(it=>taskEmail(it,all)).join('') : `<div class="empty">No emails due.</div>`;
   { const im=UI._im=inmailState();
-  h += `<h2 id="sec-li">3 · LinkedIn <span class="count">${m.lis.length}</span></h2><div class="card" style="margin:-2px 0 10px;padding:10px 14px"><b>InMails this month: ${im.used} of ${im.budget} used</b> · ${im.remaining} left · ${im.daysLeft} working day${im.daysLeft===1?'':'s'} left · about <b>${im.perDay} a day</b>${im.t1due?` · ${im.t1due} kept for Tier 1 message steps still due this month`:''}${im.replied?` · ${im.replied} answered within 90 days (Sales Navigator usually returns those credits; estimate)`:''}<div class="small muted" style="margin-top:4px">Sorted: LinkedIn Tier 1 first, then Tier 2 and 3, best window first within each. Tier 1 ($75K–$150K with email, direct and business phone) gets InMails first; Tier 2 ($10K–$75K) only from credits Tier 1 doesn't need; Tier 3 follows and comments. Anyone who accepted, or has an open profile, gets a free message. <span class="tag warn small">not in playbook, review</span></div></div>`; }
+  h += `<h2 id="sec-li">3 · LinkedIn <span class="count">${m.lis.length}</span></h2><div class="card" style="margin:-2px 0 10px;padding:10px 14px">${im.pause?`<b>LinkedIn paused until ${prettyDate(im.pause)}</b> (Settings → LinkedIn InMails) · `:''}<b>InMails this cycle (${prettyDate(im.cycle.start)}–${prettyDate(im.cycle.end)}): ${im.override?`${im.remaining} left (from Sales Navigator)`:`${im.used} of ${im.budget} used · ${im.remaining} left`}</b> · ${im.remaining?`${im.daysLeft} working day${im.daysLeft===1?'':'s'} left · about <b>${im.perDay} a day</b>, ${im.allowToday} more today`:`<b>renews ${prettyDate(im.cycle.renew)}</b>: Tier 1 InMails wait for it`} <button class="btn sm" data-act="imLeft" title="Type what Sales Navigator shows">Set credits left</button>${im.t1due?` · ${im.t1due} kept for Tier 1 message steps still due this month`:''}${im.replied?` · ${im.replied} answered within 90 days (Sales Navigator usually returns those credits; estimate)`:''}<div class="small muted" style="margin-top:4px">Sorted: LinkedIn Tier 1 first, then Tier 2 and 3, best window first within each. Tier 1 ($75K–$150K with email, direct and business phone) gets InMails first; Tier 2 ($10K–$75K) only from credits Tier 1 doesn't need; Tier 3 follows and comments. Anyone who accepted, or has an open profile, gets a free message. <span class="tag warn small">not in playbook, review</span></div></div>`; }
   h += m.lis.length ? m.lis.map(it=>taskLi(it,all)).join('') : `<div class="empty">No LinkedIn touches due.</div>`;
   { const wait=DB.contacts.filter(c=>mine(c) && c.liWait).sort((a,b)=>a.liWait.date.localeCompare(b.liWait.date));
     if (wait.length) h += `<h2 id="sec-liwait">LinkedIn: waiting for response <span class="count">${wait.length}</span></h2><p class="small muted" style="margin-top:-4px">Every LinkedIn message you've sent (1st message or follow-up) waits here until they answer. Their cadence keeps going; log Replied or No response here when you know.</p>` +
@@ -2174,10 +2202,10 @@ function stepLine(it){ const late=daysBetween(it.due,todayStr()), moved=it.c.def
 function liOutcomes(st){ return String(st.li||'').startsWith('connect') ? ['Request sent', ...OUTCOMES.linkedin] : OUTCOMES.linkedin; }
 const outLabel = (it, o) => { if (o==='InMail sent') return liMsgCount(it.c) ? 'Follow-up InMail sent (1 credit)' : 'InMail sent (1 credit)'; if (it.step.ch==='linkedin' && o==='Message sent'){ const n=liMsgCount(it.c); return n ? `Follow-up ${n} sent` : '1st message sent'; } return o; };
 function liMain(it){ const m=liMode(it.c, it.step);
-  return m==='free' ? ['Message sent','Accepted','Replied','Skip'] : m==='inmail' ? ['InMail sent','Accepted','Replied','Skip'] : m==='follow' ? ['Followed','Commented','Accepted','Replied','Skip'] : OUT_MAIN.linkedin; }
+  return m==='free' ? ['Message sent','Accepted','Replied','Skip'] : m==='inmail' ? ['InMail sent','Accepted','Replied','Skip'] : m==='wait' ? ['Accepted','Replied','Do tomorrow','Skip'] : m==='follow' ? ['Followed','Commented','Accepted','Replied','Skip'] : OUT_MAIN.linkedin; }
 function outBtns(it){ const outs = it.step.ch==='linkedin' ? liOutcomes(it.step) : OUTCOMES[it.step.ch], ln=lastNote(it.c), main = it.step.ch==='linkedin' ? liMain(it) : OUT_MAIN[it.step.ch], conn = it.step.ch==='linkedin' && !isMsgStep(it.step);
   return `${ln?`<div class="lastnote full" title="${esc(it.c.notes)}">📝 ${esc(ln)}</div>`:''}<div class="qnote full"><input type="text" data-qnote="${it.c.id}" placeholder="Note (saved with the outcome you click), e.g. retired; new HR manager is Dana, left her a voicemail" maxlength="400"><button class="btn sm" data-act="saveNote" data-id="${it.c.id}">Save note</button></div><div class="outs full">${main.filter(o=>outs.includes(o)).concat(it.c.liState==='Connected' && outs.includes('Not interested') && it.step.ch==='linkedin' ? ['Not interested'] : []).map(o=>`<button class="btn sm ${['Connected','Meeting booked','Replied'].includes(o)?'good':['Bounced','Not interested'].includes(o)?'bad':o==='InMail sent'?'primary':''}" data-act="log" data-id="${it.c.id}" data-step="${it.step.id}" data-out="${esc(o)}">${esc(outLabel(it,o))}</button>`).join('')}<select class="moreOut" data-id="${it.c.id}" data-step="${it.step.id}" aria-label="More outcomes"><option value="">More…</option>${OUT_MORE[it.step.ch].map(([g,os])=>`<optgroup label="${esc(g)}">${os.filter(o=>(o.startsWith('act:') || outs.includes(o) || it.step.ch==='email') && !main.includes(o) && !(o==='Not interested' && it.c.liState==='Connected') && !(conn && ['InMail sent','Sent free','Commented'].includes(o))).map(o=>`<option value="${esc(o)}">${esc(OUT_SHORT[o]||o)}</option>`).join('')}</optgroup>`).join('')}</select>${it.due<=todayStr()?`<button class="btn sm" data-act="defer" data-id="${it.c.id}" data-step="${it.step.id}" title="Move just this touch to the next business day" style="margin-left:auto">Do tomorrow</button>`:''}</div>`; }
-function phoneBtns(c){ return [c.directPhone&&`<a class="btn sm" href="${telHref(c.directPhone)}">Direct ${esc(c.directPhone)}</a>${c.phoneBad?' <span class="tag bad">flagged wrong</span>':''}`, c.businessPhone&&`<a class="btn sm" href="${telHref(c.businessPhone)}">Business ${esc(c.businessPhone)}</a>`].filter(Boolean).join(' ') || '<span class="tag bad">No phone on file</span>'; }
+function phoneBtns(c){ return [c.directPhone&&`<a class="btn sm" href="${telHref(c.directPhone)}">Direct ${esc(c.directPhone)}</a>${c.phoneBad?' <span class="tag bad">flagged wrong</span>':''}`, c.businessPhone&&`<a class="btn sm" href="${telHref(c.businessPhone)}">Business ${esc(c.businessPhone)}</a>${c.bizDialer?` <span class="tag warn" title="Logged ${esc(prettyDate(c.bizDialer))}: automated line, no way to reach them">dialer, no contact</span>`:''}`].filter(Boolean).join(' ') || '<span class="tag bad">No phone on file</span>'; }
 function brushOffs(c){ const ks=Object.keys(TALK).filter(k=>/^T/.test(k)); if (!ks.length) return '';
   return `<details class="script full"><summary>Brush-offs: ledge, mirror, pause, ask</summary>${ks.map(k=>`<div class="small" style="margin:4px 0"><b>${esc(TALK[k].name)}</b><br>${sayHtml(fill(TALK[k].text,c))}</div>`).join('')}</details>`; }
 function taskRecall(x, all){
@@ -2194,7 +2222,7 @@ function taskRecall(x, all){
 }
 function taskCall(it, all){
   const c=it.c, z=zoneInfo(c), {opener, vm}=resolveCall(c,it.step), o=OPENERS[opener], v=vm&&VMS[vm];
-  const phones = [c.directPhone&&`<a class="btn sm" href="${telHref(c.directPhone)}">Direct ${esc(c.directPhone)}</a>${c.phoneBad?' <span class="tag bad">flagged wrong</span>':''}`, c.businessPhone&&`<a class="btn sm" href="${telHref(c.businessPhone)}">Business ${esc(c.businessPhone)}</a>`].filter(Boolean).join(' ') || '<span class="tag bad">No phone: skip or research</span>';
+  const phones = [c.directPhone&&`<a class="btn sm" href="${telHref(c.directPhone)}">Direct ${esc(c.directPhone)}</a>${c.phoneBad?' <span class="tag bad">flagged wrong</span>':''}`, c.businessPhone&&`<a class="btn sm" href="${telHref(c.businessPhone)}">Business ${esc(c.businessPhone)}</a>${c.bizDialer?` <span class="tag warn" title="Logged ${esc(prettyDate(c.bizDialer))}: automated line, no way to reach them">dialer, no contact</span>`:''}`].filter(Boolean).join(' ') || '<span class="tag bad">No phone: skip or research</span>';
   return `<div class="task ${bandCls(c)}">
     <div>${who(c,all)}</div>
     <div>${zoneBadge(z.zone)} <b>${z.zone?clockIn(ZONES[z.zone].iana):'?'}</b> their time <span class="win ${it.w.key}">${it.w.label}</span><br><span class="small muted">${windowHint(z.zone, c)}</span></div>
@@ -2217,7 +2245,7 @@ function taskEmail(it, all){
 }
 function liCardMode(it){
   const c=it.c, g=liGrade(c), md=liMode(c, it.step), im=UI._im||inmailState(), tg=`<span class="tag ${g===1?'good':g===2?'':'warn'}" title="LinkedIn priority: Tier 1 $75K–$150K with email, direct and business phone; Tier 2 $10K–$75K; Tier 3 everyone else">LinkedIn Tier ${g}</span>`;
-  const txt = md==='connect' ? 'Connection request: free' : md==='free' ? (c.liState==='Connected' ? 'Free message: they accepted' : 'Free message: open profile') : md==='inmail' ? `<b>Uses 1 InMail credit</b> · ${im.used} of ${im.budget} used this month` : g===3 ? 'No InMail for Tier 3: follow them and comment on a post' : `No InMail credits left for Tier ${g} this month: follow and comment`;
+  const txt = md==='wait' ? `Waiting for an InMail credit (${im.remaining?'today\'s share is used':'credits renew '+prettyDate(im.cycle.renew)}). It moves by itself; Followed or Commented under More if you'd rather not wait.` : md==='connect' ? 'Connection request: free' : md==='free' ? (c.liState==='Connected' ? 'Free message: they accepted' : 'Free message: open profile') : md==='inmail' ? `<b>Uses 1 InMail credit</b> · ${im.used} of ${im.budget} used this month` : g===3 ? 'No InMail for Tier 3: follow them and comment on a post' : `No InMail credits left for Tier ${g} this month: follow and comment`;
   const tog = isMsgStep(it.step) && c.liState!=='Connected' ? `<button class="btn sm" data-act="liOpen" data-id="${c.id}" title="${c.openProfile?'Not an open profile after all':'Open profiles can be messaged free, without connecting'}">${c.openProfile?'Not an open profile':'Open profile? Message free'}</button>` : '';
   return `<div class="small" style="margin-top:6px">${tg} ${txt} ${tog}</div>`;
 }
@@ -2533,7 +2561,9 @@ function renderSettingsBody(){
     <label>Days between nurture re-contacts<input type="number" min="3" max="90" data-sprint="days" value="${s.sprint.days}"></label><label>Nurture rounds before parking<input type="number" min="0" max="10" data-sprint="rounds" value="${s.sprint.rounds}"></label></div>
     <p class="small muted">Cold sprint now: ${(()=>{ const n=touchesPerContact(); return `${n.call} calls, ${n.email} emails, ${n.linkedin} LinkedIn touches, ending on ${(DB.settings.spacing||'biz')==='cal'?'':'business '}day ${Math.max(0,...sprintCut(TRACKS.cold, STUB('cold')).map(x=>x.day))}`; })()}. Edit the nurture call and email on the Cadence tab.</p></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">LinkedIn InMails</h3><p class="small muted" style="margin-top:0">Not in playbook, review. Sales Navigator InMail credits for you (your teammate sets their own). Tier 1: accounts from the amount below up to the prime maximum, with email, direct and business phone. Tier 2: the rest of the prime range. Tier 3: everyone else, who get a follow and a comment instead of an InMail. Anyone who accepted the connection, or has an open profile, gets a free message.</p>
-    <div class="fields"><label>InMails a month<input type="number" min="0" max="500" data-im="monthly" value="${(s.inmail||{}).monthly??50}"></label><label>Tier 1 starts at ($ a year)<input type="number" min="0" step="5000" data-im="tier1Min" value="${(s.inmail||{}).tier1Min??75000}"></label></div></div>
+    <div class="fields"><label>InMails a month<input type="number" min="0" max="500" data-im="monthly" value="${(s.inmail||{}).monthly??50}"></label><label>Tier 1 starts at ($ a year)<input type="number" min="0" step="5000" data-im="tier1Min" value="${(s.inmail||{}).tier1Min??75000}"></label><label>Credits renew on day<input type="number" min="1" max="31" data-im="renewDay" value="${(s.inmail||{}).renewDay??14}"></label>
+    <label>Pause all LinkedIn until (optional)<input type="date" data-impause="1" value="${esc((s.inmail||{}).pauseUntil||'')}"></label></div>
+    <p class="small muted">Credits renew on day ${(s.inmail||{}).renewDay??14} of each month. Each working day the app offers about (credits left ÷ working days left) InMails, best-ranked first; Tier 1 beyond that waits a day, and when credits run out Tier 1 waits for the renewal. Connection requests, and messages to people who accepted or have an open profile, are free and carry on. Pausing all LinkedIn holds every LinkedIn touch, free ones too, until the date. Use <b>Set credits left</b> in the LinkedIn section on Today when Sales Navigator shows a different number.</p></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Best windows (prospect's local time)</h3><p class="small muted">Ranges like <code>8-11, 16-17</code> or <code>8:30-10:30, 2pm-4pm</code>. "Best" ranks first; "OK" is the fallback.</p>
     <div class="fields">${winInp('call','Calls: best')}${winInp('callOk','Calls: OK')}${winInp('email','Emails: best')}${winInp('emailOk','Emails: OK')}${winInp('linkedin','LinkedIn: best')}${winInp('linkedinOk','LinkedIn: OK')}</div></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Call-back alerts</h3><p class="small muted" style="margin-top:0">A notification a few minutes before each call-back, with their name, company, phone and your note. It works while this app is open in a browser tab (it can be in the background). ${'Notification' in window ? (Notification.permission==='denied' ? '<b>Notifications are blocked for this site in your browser settings</b>, so you\'ll get the in-app alert and sound only.' : '') : 'This browser has no notifications, so you\'ll get the in-app alert and sound only.'}</p>
@@ -3088,6 +3118,8 @@ document.addEventListener('click', e=>{
     case 'awayClear': if (c){ c.awayUntil=''; touch(c); save(); render(); toast(`${c.name}: no longer marked away. Touches already moved stay where they are.`); } break;
     case 'theyCallOpen': if (c){ UI.modal={type:'theyCall', cid:c.id}; renderModal(); } break;
     case 'theyCallSave': saveTheyCall(); break;
+    case 'imLeft': { const v=prompt('InMail credits left in Sales Navigator right now?', String(inmailState().remaining)); if (v===null) break; const n=Math.max(0, Math.round(+v||0)), im=inmailState0();
+      DB.settings.inmail.override={cycle:im.cycle.start, left:n, usedAt:im.used}; save(); render(); toast(`${n} InMail credit${n===1?'':'s'} left until ${prettyDate(im.cycle.renew)}`); } break;
     case 'liOpen': if (c){ c.openProfile=!c.openProfile; touch(c); save(); render(); toast(c.openProfile ? `${c.name}: open profile, so the message is free` : `${c.name}: not an open profile`); } break;
     case 'inHouse': if (c){ setInHouse(c); save(); render(); toast(`${company(c).name} runs checks in-house. ${c.name} comes back ${prettyDate(c.revisitDate)} with the in-house script; colleagues paused.`); } break;
     case 'theyCalled': if (c){ theyCalled(c); save(); render(); toast(`${c.name} called back: set the next step under Connected.`); } break;
@@ -3293,7 +3325,8 @@ document.addEventListener('change', async e=>{
   if (d.rep){ const r=DB.settings.reps.find(x=>x.id===d.rep); if (r){ r[d.rf]=el.value; save(); renderHeader(); } return; }
   if (d.cap){ DB.settings.caps[d.cap]=Math.max(0,+el.value||0); save(); return; }
   if (d.spacing){ DB.settings.spacing = el.value==='cal' ? 'cal' : 'biz'; save(); render(); toast(`Cadence days now count as ${DB.settings.spacing==='cal'?'calendar':'business'} days for new starts`); return; }
-  if (d.im){ DB.settings.inmail ||= {monthly:50, tier1Min:75000}; DB.settings.inmail[d.im]=Math.max(0, Math.round(+el.value||0)); save(); render(); return; }
+  if (d.impause){ DB.settings.inmail ||= {monthly:50, tier1Min:75000, renewDay:14}; DB.settings.inmail.pauseUntil = isValidYmd(el.value) ? el.value : ''; save(); render(); return; }
+  if (d.im){ DB.settings.inmail ||= {monthly:50, tier1Min:75000, renewDay:14}; DB.settings.inmail[d.im]=Math.max(0, Math.round(+el.value||0)); save(); render(); return; }
   if (d.sprint){ const S=DB.settings.sprint; S[d.sprint] = d.sprint==='on' ? el.checked : Math.max(0, Math.round(+el.value||0)); if (d.sprint==='days') S.days=Math.max(1,S.days); save(); render(); return; }
   if (d.spend){ DB.settings.spend[d.spend]=Math.max(0,+el.value||0); save(); render(); return; }
   if (d.lost){ const c=DB.contacts.find(x=>x.id===UI.drawer); if (c){ const L=c.lost=c.lost||{}; L[d.lost]=el.value;
