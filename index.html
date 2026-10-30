@@ -335,6 +335,7 @@ const OPENERS = {
   WRfpT:{name:"RFP check-in · terms we couldn't meet (not in playbook, review)",text:"Hi [Prospect], it's [Rep] with Peopletrail. In your last RFP, a few terms were ones we couldn't meet. Before the next cycle, are those terms fixed, or is there room to discuss them? If they're fixed, I'd rather know now than waste your time."},
   WG:{name:'Win-back · new reason to talk (Sobczak: never "just checking in" (not in playbook, review))',text:"Hi [Prospect], [Rep] with Peopletrail. I'm not calling just to check in. Since we last talked, [What's new]. Last time you mentioned [Loss detail], so I thought it was worth two minutes. Is that still an issue for you?"},
   NR:{name:'Nurture re-contact · a new reason (Sobczak: never "just checking in" (not in playbook, review))',text:"Hi [Prospect], it's [Rep] with Peopletrail. I reached out a couple of weeks ago about background screening at [Their Company]. I'm not calling just to check in. Most of our reports come back in about 1.6 business days, and candidates track their own status, so HR stops fielding \"where's my check?\" calls. How long are your candidates waiting today?"},
+  IH:{name:'Re-engage · they run checks in-house (not in playbook, review)',text:"Hi [Prospect], it's [Rep] with Peopletrail. When we spoke a few months ago you mentioned [Their Company] runs background checks in-house. Teams that do usually feel it in two places: county searches that slow hires down, and keeping up with FCRA and state rules. Has either one gotten easier, or is it worth 15 minutes to compare?"},
   R:{name:'Re-engage old lead (not in playbook, review)',text:"Hi [Prospect], [Rep] with Peopletrail. We talked a while back about background screening at [Their Company]. A lot can change in a year, so I'm checking in. Is your current setup still working, or has anything come up?"},
 };
 const VMS = {
@@ -376,6 +377,7 @@ const EMAILS = {
   wb2:{name:'Win-back email 2 · what is new (not in playbook, review)',subject:'one change since we talked',text:"Hi [Prospect],\n\nOne thing that's changed since we last talked: [What's new].\n\nYou'd mentioned [Loss detail], so I thought you'd want to know. Worth a short call?"},
   wb3:{name:'Win-back email 3 · close the file (not in playbook, review)',subject:'should I close your file?',text:"Hi [Prospect],\n\nI haven't heard back, so I'll assume now isn't the time and close your file. If anything changes, or your renewal comes up, just reply and I'll pick it back up."},
   eN:{name:'Nurture email · one idea (not in playbook, review)',subject:'one idea for [Their Company]',text:"Hi [Prospect],\n\nI reached out a couple of weeks ago and didn't want to just check in, so here's one idea.\n\nMost of our reports come back in about 1.6 business days, and candidates track their own status on their phone. HR teams tell us that cuts most of the \"where's my background check?\" calls.\n\nWorth 15 minutes to compare with what you have now, or should I check back next quarter?"},
+  eIH:{name:'Re-engage · in-house checks (not in playbook, review)',subject:'checks in-house at [Their Company]',text:"Hi [Prospect],\n\nWhen we spoke you mentioned [Their Company] handles background checks in-house. That works until volume picks up or a state rule changes: county searches slow hires down and the compliance paperwork lands on HR.\n\nMost of our reports come back in about 1.6 business days, with the FCRA notices built in. Worth 15 minutes to compare against what it costs you in-house?"},
   eR:{name:'Re-engage (adapted from Sequence F)',subject:'since we spoke',text:"Hi [Prospect], we spoke a while back about background screening at [Their Company]. Has anything changed with your provider, or is it worth a 20-minute comparison before your next renewal?"},
 };
 const LINKEDIN = {
@@ -499,17 +501,17 @@ const CH_LABEL = {call:'Call', email:'Email', linkedin:'LinkedIn'};
 const OUT_MAIN = {call:['Connected','Meeting booked','Call back','Left voicemail','No answer','Gatekeeper','Skip'],
   email:['Sent','Replied','Meeting booked','Bounced','Skip'], linkedin:['Request sent','Message sent','Accepted','Replied','Skip']};
 const OUT_MORE = {
-  call:[["Couldn't reach them",['Away until','Voicemail full','Not in dialer','Not in service','Wrong number']],["Spoke with them",['Signed elsewhere']],["Wrong person or stop",['Not the right person','Contact left','Do not call']]],
+  call:[["Couldn't reach them",['Away until','Voicemail full','Not in dialer','Not in service','Wrong number']],["Spoke with them",['Signed elsewhere','In-house checks']],["Wrong person or stop",['Not the right person','Contact left','Do not call']]],
   email:[["Auto-reply",['Sent · out of office','Sent · verify (Sendio)']],["Stop",['Opted out']]],
-  linkedin:[["Their answer",['Not interested']],["Couldn't connect",['Followed','Follow requested']],["Can't use LinkedIn",['act:noLi','act:liDisabled']]]};
-const OUT_SHORT = {'Away until':'Away until a date (greeting or someone said so)','Voicemail full':'Voicemail full','Not in dialer':'Not found in dial-by-name directory','Not in service':'Number not in service','Signed elsewhere':'Just signed with another provider','act:noLi':'No LinkedIn profile','act:liDisabled':'Messaging disabled (recipient blocks all messages)'};
+  linkedin:[["Their answer",['Not interested']],["Sent another way",['InMail sent','Sent free']],["Couldn't connect",['Followed','Commented','Follow requested']],["Can't use LinkedIn",['act:noLi','act:liDisabled']]]};
+const OUT_SHORT = {'InMail sent':'InMail sent (1 credit)','Commented':'Commented on a post','Sent free':'Sent free (connected or open profile)','In-house checks':'They run checks in-house','Away until':'Away until a date (greeting or someone said so)','Voicemail full':'Voicemail full','Not in dialer':'Not found in dial-by-name directory','Not in service':'Number not in service','Signed elsewhere':'Just signed with another provider','act:noLi':'No LinkedIn profile','act:liDisabled':'Messaging disabled (recipient blocks all messages)'};
 /* Every LinkedIn message has a subject (InMail and Sales Navigator won't send without one); scripts without one get a plain default. */
 const LI_SUBJECT_DEFAULT = {connect4:'HR leaders in [state]', connect1:'your post on [topic]', connect2:'congrats on the new role', connect3:'growth at [Their Company]', voice:'quick voice note'};
 const liSubject = k => (LINKEDIN[k] && LINKEDIN[k].subject) || LI_SUBJECT_DEFAULT[k] || 'quick question, [Prospect]';
 const OUTCOMES = {
-  call: ['Connected','Meeting booked','Call back','Left voicemail','No answer','Gatekeeper','Away until','Voicemail full','Not in dialer','Not in service','Wrong number','Not the right person','Contact left','Signed elsewhere','Do not call','Skip'],
+  call: ['Connected','Meeting booked','Call back','Left voicemail','No answer','Gatekeeper','In-house checks','Away until','Voicemail full','Not in dialer','Not in service','Wrong number','Not the right person','Contact left','Signed elsewhere','Do not call','Skip'],
   email:['Sent','Sent · out of office','Sent · verify (Sendio)','Replied','Meeting booked','Bounced','Opted out','Skip'],
-  linkedin:['Message sent','Followed','Follow requested','Accepted','Replied','Not interested','Skip'],
+  linkedin:['InMail sent','Sent free','Commented','Message sent','Followed','Follow requested','Accepted','Replied','Not interested','Skip'],
 };
 const STOP_CONNECT = new Set(['Connected','Replied','Call back requested']);
 const LIVE = new Set(['Connected','Meeting booked','Not the right person','Do not call','Call back requested']);
@@ -545,6 +547,7 @@ const DEFAULT_SETTINGS = {
   spacing:'biz',
   sigOn:false,
   autoRoll:true,
+  inmail:{monthly:50, tier1Min:75000},
   alerts:{on:false, lead:5, sound:true},
   hubspot:{lifecycle:'', status:{}},
   sprint:{on:true, calls:3, emails:3, li:1, days:14, rounds:3},
@@ -598,7 +601,7 @@ function persist(){
     catch(e){ try { localStorage.setItem('lead-cadence', JSON.stringify(snap)); UI.storageOk=true; } catch(_){ UI.storageOk=false; renderHeader(); } }
   }, 250);
 }
-function save(changed=true){ if (changed){ DB.lastChange=Date.now(); FileSave.schedule(); } persist(); }
+function save(changed=true){ IM_CACHE=null; if (changed){ DB.lastChange=Date.now(); FileSave.schedule(); } persist(); }
 async function load(){
   let data=null;
   try { await IDB.open(); data = await IDB.get('state'); } catch(e){}
@@ -607,7 +610,7 @@ async function load(){
     DB = Object.assign(DB, data);
     const ds = structuredClone(DEFAULT_SETTINGS), s = data.settings || {};
     DB.settings = Object.assign(ds, s);
-    for (const k of ['caps','windows','rates','mid','goals','spend','winback','hubspot','alerts','sprint']) DB.settings[k] = Object.assign(structuredClone(DEFAULT_SETTINGS[k]), s[k]||{});
+    for (const k of ['caps','windows','rates','mid','goals','spend','winback','hubspot','alerts','sprint','inmail']) DB.settings[k] = Object.assign(structuredClone(DEFAULT_SETTINGS[k]), s[k]||{});
     if (data.setupDone===undefined) DB.setupDone = true; /* browsers in use before the first-run screen existed */
   }
   try { await navigator.storage?.persist?.(); } catch(e){}
@@ -808,7 +811,7 @@ function sprintCut(list, c){
     if (met()){ if (done.has(s.id)) out.push(s); continue; }
     out.push(s); const t=done.get(s.id);
     if ((t && t.outcome==='Skip') || (off && s.ch==='email')) continue;
-    if (s.ch==='linkedin'){ if (t ? (t.msgNo || ['Message sent','Waiting for response','No response','Replied','Not interested'].includes(t.outcome) || (isLiMsg(s) && !['Followed','Follow requested','Request sent'].includes(t.outcome))) : isLiMsg(s)) have.linkedin++; } else have[s.ch]++;
+    if (s.ch==='linkedin'){ if (t ? (t.msgNo || t.followMode || ['Message sent','Waiting for response','No response','Replied','Not interested'].includes(t.outcome) || (isLiMsg(s) && !['Followed','Follow requested','Request sent'].includes(t.outcome))) : isLiMsg(s)) have.linkedin++; } else have[s.ch]++;
   }
   return out;
 }
@@ -937,9 +940,48 @@ function resolveCall(c, st){
     else if (co.trigger==='Hiring surge' || co.trigger==='New state / locations'){ opener='H'; vm='VM4'; }
     else if (co.trigger && co.triggerNote && vm) vm='VM4';
   }
+  if (co.inHouse && st.id==='r1-call' && OPENERS.IH) opener='IH';
   if (!OPENERS[opener]) opener = Object.keys(OPENERS)[0];
   if (vm && !VMS[vm]) vm='';
   return {opener, vm};
+}
+/* LinkedIn priority grade (InMail credits). Tier 1: $75K–$150K a year with email, direct phone and business phone.
+   Tier 2: $10K–$75K, or $75K–$150K missing one of those. Tier 3: under $10K, over $150K (RFP size), or size unknown.
+   Within a tier: Optimal score, then a company trigger, then a decision-maker title. */
+function liGrade(c){
+  const a=acctSize(company(c)), s=DB.settings.spend, t1=+(DB.settings.inmail||{}).tier1Min||75000;
+  if (!a.band || !(a.spend>0) || a.spend<s.primeMin || a.spend>s.primeMax) return 3;
+  if (a.spend>=t1) return (c.email && c.directPhone && c.businessPhone) ? 1 : 2;
+  return 2;
+}
+const DM_RX=/\b(vp|vice president|director|head|chief|cho|chro|coo|owner)\b/i;
+const liRank = c => liGrade(c)*1000 - optimal(company(c))*100 - (company(c).trigger?10:0) - (DM_RX.test(c.title||'')?5:0);
+const isMsgStep = st => st && st.ch==='linkedin' && !String(st.li||'').startsWith('connect');
+const monthOf = d => String(d||'').slice(0,7);
+/* InMails this month for the rep this browser belongs to (or the one picked under Working as). */
+let IM_CACHE=null;
+function inmailState(){
+  if (IM_CACHE && IM_CACHE.day===todayStr() && IM_CACHE.rep===DB.settings.currentRep) return IM_CACHE.v;
+  const v=inmailState0(); IM_CACHE={day:todayStr(), rep:DB.settings.currentRep, v}; return v; }
+function inmailState0(){
+  const me=DB.settings.currentRep!=='all' ? DB.settings.currentRep : (DB.settings.homeRep||''), t=todayStr(), mo=monthOf(t), budget=+(DB.settings.inmail||{}).monthly||0;
+  let used=0, replied=0;
+  for (const c of DB.contacts){ if (me && c.owner!==me) continue; for (const x of allTouches(c)) if (x.inmail){ if (monthOf(x.date)===mo) used++; if (x.inmailReplied && daysBetween(x.date, x.inmailReplied)<=90 && monthOf(x.inmailReplied)===mo) replied++; } }
+  let left=0, d=t; const end=mo+'-31'; while (d<=end && monthOf(d)===mo){ if (nextBiz(d)===d) left++; d=addDays(d,1); }
+  /* Tier 1 message steps still to come this month, for contacts who haven't accepted: credits kept for them */
+  let t1due=0; for (const c of DB.contacts){ if ((me && c.owner!==me) || c.status!=='Attempting' || liGrade(c)!==1 || c.liState==='Connected' || c.openProfile) continue;
+    if (pendingSteps(c).some(s=>isMsgStep(s) && monthOf(dueDate(c,s))===mo)) t1due++; }
+  const remaining=Math.max(0, budget-used);
+  return {budget, used, replied, remaining, daysLeft:left, perDay: left ? Math.ceil(remaining/left) : remaining, t1due, spareForT2: Math.max(0, remaining-t1due)};
+}
+/* How a LinkedIn message step goes out: free (accepted or open profile), as an InMail (tier and credits allowing), or follow and comment. */
+function liMode(c, st, im){
+  if (!isMsgStep(st)) return 'connect';
+  if (c.liState==='Connected' || c.openProfile) return 'free';
+  im = im || inmailState(); const g=liGrade(c);
+  if (g===1) return im.remaining>0 ? 'inmail' : 'follow';
+  if (g===2) return im.spareForT2>0 ? 'inmail' : 'follow';
+  return 'follow';
 }
 function resolveLi(c, st){
   if (st.li==='connect'){ const t=company(c).trigger; let k = t==='New HR leader' ? 'connect2' : (t==='Hiring surge'||t==='New state / locations') ? 'connect3' : 'connect1';
@@ -958,9 +1000,9 @@ function fill(text, c, extra){
 }
 const sayHtml = t => esc(t).replace(/\[[^\]]+\]/g, m=>`<mark>${m}</mark>`);
 const lossKey = c => lossKeyOf(c);
-const emailKey = (c, key) => key==='loss' ? LOSS_EMAIL[lossKey(c)] : key==='persona' ? (EMAILS[PERSONAS[persona(c)].em1] ? PERSONAS[persona(c)].em1 : 'e1') : key;
+const emailKey = (c, key, st) => st && st.id==='r1-email' && company(c).inHouse && EMAILS.eIH ? 'eIH' : key==='loss' ? LOSS_EMAIL[lossKey(c)] : key==='persona' ? (EMAILS[PERSONAS[persona(c)].em1] ? PERSONAS[persona(c)].em1 : 'e1') : key;
 function emailFor(c, key, st){
-  key = emailKey(c, key);
+  key = emailKey(c, key, st);
   const e=EMAILS[key] || EMAILS[Object.keys(EMAILS)[0]], rep=repObj(c.owner), s=DB.settings;
   let subject = fill(e.subject, c);
   if (e.thread && st){ /* reply in the thread of the last earlier email that started a thread */
@@ -993,6 +1035,10 @@ function applyOutcome(c, stepId, outcome, date, quiet){
   c.touches = c.touches||[];
   if (c.touches.some(t=>t.step===stepId)) return false;
   date = date || todayStr();
+  let inmailFlag=false, followMode=false;
+  if (st.ch==='linkedin' && outcome==='InMail sent'){ outcome='Message sent'; inmailFlag=true; }
+  if (st.ch==='linkedin' && outcome==='Sent free') outcome='Message sent';
+  if (st.ch==='linkedin' && isMsgStep(st) && ['Followed','Commented'].includes(outcome) && liMode(c, st)==='follow') followMode=true;
   if (st.ch==='linkedin' && outcome==='Done') outcome = String(st.li||'').startsWith('connect') ? 'Request sent' : 'Message sent';
   if (st.ch==='linkedin' && outcome==='Request sent' && !String(st.li||'').startsWith('connect')) outcome='Message sent';
   /* LinkedIn messages are numbered (1st message, follow-up 1, 2...) and wait on "LinkedIn: waiting for response" until you log the answer. */
@@ -1000,7 +1046,7 @@ function applyOutcome(c, stepId, outcome, date, quiet){
   const msgNo = isMsg ? liMsgCount(c)+1 : 0;
   if (c.rolled && c.rolled[stepId]) delete c.rolled[stepId];
   if (c.held && c.held[stepId]) delete c.held[stepId];
-  c.touches.push({step:stepId, ch:st.ch, label:st.label+(msgNo?` · ${msgNo===1?'1st message':'follow-up '+(msgNo-1)}`:''), date, outcome, ...(msgNo?{msgNo}:{}), at:new Date().toISOString()});
+  c.touches.push({step:stepId, ch:st.ch, label:st.label+(msgNo?` · ${msgNo===1?'1st message':'follow-up '+(msgNo-1)}`:'')+(inmailFlag?' · InMail':'')+(followMode?' · no InMail: followed/commented':''), date, outcome, ...(msgNo?{msgNo}:{}), ...(inmailFlag?{inmail:true}:{}), ...(followMode?{followMode:true}:{}), at:new Date().toISOString()});
   let msg='';
   if (isMsg) c.liWait={step:stepId, label:`${msgNo===1?'1st message':'Follow-up '+(msgNo-1)}: ${st.label}`, date};
   else if (st.ch==='linkedin' && c.liWait && !['Followed','Follow requested','Skip'].includes(outcome)) c.liWait=null;
@@ -1041,6 +1087,7 @@ function handleLog(c, stepId, out, el){
   if (out==='Contact left'){ UI.modal={type:'left', cid:c.id, stepId, note}; return renderModal(); }
   if (out==='Away until'){ UI.modal={type:'away', cid:c.id, stepId, note}; return renderModal(); }
   if (out==='Signed elsewhere'){ logOutcome(c, stepId, 'Connected', note); UI.modal={type:'signed', cid:c.id}; return renderModal(); }
+  if (out==='In-house checks'){ applyOutcome(c, stepId, 'Connected', todayStr(), true); if (note) addNote(c, note, 'Connected'); setInHouse(c); save(); render(); return toast(`${company(c).name} runs checks in-house. ${c.name} comes back ${prettyDate(c.revisitDate)} with the in-house script; colleagues paused.`); }
   if (out==='Sent · out of office' || out==='Sent · verify (Sendio)'){ logOutcome(c, stepId, 'Sent', note); UI.modal={type:'reply', cid:c.id, detected: out.includes('Sendio') ? {type:'verify', service:'Sendio'} : {type:'ooo'}}; return renderModal(); }
   logOutcome(c, stepId, out, note);
 }
@@ -1048,7 +1095,9 @@ function logOutcome(c, stepId, outcome, note){
   applyOutcome(c, stepId, outcome, todayStr(), false);
   if (note){ const t=[...(c.touches||[])].reverse().find(x=>x.step===stepId); if (t) t.note=note; addNote(c, note, outcome); }
   save(); render(); }
+function markInmailReply(c){ const t=[...allTouches(c)].reverse().find(x=>x.inmail && !x.inmailReplied); if (t) t.inmailReplied=todayStr(); }
 function liRespond(c, out){
+  if (['Replied','Not interested'].includes(out)) markInmailReply(c);
   const w=c.liWait; if (!w) return '';
   const t=[...(c.touches||[])].reverse().find(x=>x.step===w.step) || {}; const today=todayStr();
   t.outcome = out; t.replyDate=today; c.liWait=null; let msg='';
@@ -1082,6 +1131,12 @@ function repToTheirLabel(c, repHHMM, D){ const z=zoneInfo(c).zone; return z ? `$
 /* Nothing for this contact before the resume date (a working day). In a cadence: every remaining touch moves later by the same
    number of days, so the spacing stays; earlier call-backs move to that day. Waiting in the queue: held until then.
    In nurture: the re-contact or revisit moves to that day if it was earlier. Returns the days moved (cadence only). */
+/* They run background checks in-house (not in playbook, review): nurture with a 6-month revisit; the re-engage call and email
+   use the in-house script (IH / eIH). Colleagues at the company pause. */
+function setInHouse(c){ const co=company(c), d=nextBiz(addDays(todayStr(),182)); co.inHouse={date:todayStr()};
+  c.status='Nurture'; c.cycle=null; c.revisitDate=d; addNote(c, 'they run background checks in-house', 'Connected');
+  for (const o of DB.contacts) if (o!==c && o.companyKey===c.companyKey && ['New','Attempting'].includes(o.status)){ o.status='Paused'; o.pauseReason=`${c.name} said they run checks in-house`; touch(o); }
+  touch(c); }
 function holdUntil(c, resume){
   resume=nextBiz(resume); const today=todayStr(); let shift=0;
   c.awayUntil=resume;
@@ -1595,11 +1650,11 @@ function buildTrackerWorkbook(){
       'Discovery Date':c.discoveryDate||'','Pause Reason':c.pauseReason,'Phone Bad':yn(c.phoneBad),'Email Bad':yn(c.emailBad),'Last Contacted (import)':c.lastContacted,
       'Prior Status (import)':c.priorStatus,'Notes':c.notes,'Email Blocked':yn(c.emailBlocked),
       'Next Call-back':(()=>{ const r=pendingRecalls(c)[0]; return r?`${r.date} ${fmtHour(hrs(r.time))} (their ${r.their})`:''; })(),
-      'Call-backs (data)':JSON.stringify(c.recalls||[]),'Bounces (data)':JSON.stringify(c.bounces||[]),'Both Reps Had It':c.alsoOn||'','Referred By':c.referredBy||'','LinkedIn Status':c.liState||'','LinkedIn Since':c.liSince||'','Best Time':c.bestTime||'','Work Despite HubSpot':c.hsOverride?'Yes':'','HubSpot Exported':c.hsExported||'','LinkedIn Waiting (data)':c.liWait?JSON.stringify(c.liWait):'','Unqualified Reason':c.unqualReason||'','Left (data)':c.left?JSON.stringify(c.left):'','Away Until':c.awayUntil||'','They Call (data)':c.theyCall?JSON.stringify(c.theyCall):'','Replaces':c.replaces||'','Nurture (data)':(c.cycle||c.parked)?JSON.stringify({cycle:c.cycle||null, parked:c.parked||''}):'','Created At':c.createdAt?new Date(c.createdAt).toISOString():'','Moved Steps (data)':c.defer&&Object.keys(c.defer).length?JSON.stringify(c.defer):'','Rolled (data)':c.rolled&&Object.keys(c.rolled).length?JSON.stringify(c.rolled):'','Held (data)':c.held&&Object.keys(c.held).length?JSON.stringify(c.held):'','Loss Reason':c.lost?LOSS_CATS[c.lost.cat||'other']:'','Lost On':c.lost?.date||'','Quoted Amount':c.lost?.amount||'','Lost To':c.lost?.competitor||'','Closed-lost (data)':c.lost?JSON.stringify(c.lost):'','Updated At':new Date(c.updatedAt||Date.now()).toISOString()}; });
-  const T = []; for (const c of DB.contacts) for (const t of allTouches(c)) T.push({'PT_ID':c.id,'Contact':c.name,'Company':company(c).name,'Date':t.date,'Step ID':t.step,'Channel':CH_LABEL[t.ch]||t.ch,'Step':t.label,'Outcome':t.outcome,'Logged At':t.at,'Logged From':t.sheet?'Run sheet':'App','Earlier cadence':t.archived?(t.track||'cold'):'','Reply Logged':t.replyDate||'','Auto-reply':t.autoReply||''});
+      'Call-backs (data)':JSON.stringify(c.recalls||[]),'Bounces (data)':JSON.stringify(c.bounces||[]),'Both Reps Had It':c.alsoOn||'','Referred By':c.referredBy||'','LinkedIn Status':c.liState||'','LinkedIn Since':c.liSince||'','Best Time':c.bestTime||'','Work Despite HubSpot':c.hsOverride?'Yes':'','HubSpot Exported':c.hsExported||'','LinkedIn Waiting (data)':c.liWait?JSON.stringify(c.liWait):'','Unqualified Reason':c.unqualReason||'','Left (data)':c.left?JSON.stringify(c.left):'','Away Until':c.awayUntil||'','Open Profile':yn(c.openProfile),'They Call (data)':c.theyCall?JSON.stringify(c.theyCall):'','Replaces':c.replaces||'','Nurture (data)':(c.cycle||c.parked)?JSON.stringify({cycle:c.cycle||null, parked:c.parked||''}):'','Created At':c.createdAt?new Date(c.createdAt).toISOString():'','Moved Steps (data)':c.defer&&Object.keys(c.defer).length?JSON.stringify(c.defer):'','Rolled (data)':c.rolled&&Object.keys(c.rolled).length?JSON.stringify(c.rolled):'','Held (data)':c.held&&Object.keys(c.held).length?JSON.stringify(c.held):'','Loss Reason':c.lost?LOSS_CATS[c.lost.cat||'other']:'','Lost On':c.lost?.date||'','Quoted Amount':c.lost?.amount||'','Lost To':c.lost?.competitor||'','Closed-lost (data)':c.lost?JSON.stringify(c.lost):'','Updated At':new Date(c.updatedAt||Date.now()).toISOString()}; });
+  const T = []; for (const c of DB.contacts) for (const t of allTouches(c)) T.push({'PT_ID':c.id,'Contact':c.name,'Company':company(c).name,'Date':t.date,'Step ID':t.step,'Channel':CH_LABEL[t.ch]||t.ch,'Step':t.label,'Outcome':t.outcome,'Logged At':t.at,'Logged From':t.sheet?'Run sheet':'App','Earlier cadence':t.archived?(t.track||'cold'):'','Reply Logged':t.replyDate||'','Auto-reply':t.autoReply||'','InMail':t.inmail?'Yes':'','InMail Replied':t.inmailReplied||'','Follow Mode':t.followMode?'Yes':''});
   const K = Object.values(DB.companies).map(co=>({'Company Key':co.key,'Company':co.name,'State':co.state,'City':co.city,'Employees':co.employees,'Est Annual Hires':co.annualHires,'Industry':co.industry,
     'Mid-sized':isMid(co)?'Yes':'','Mid-sized Override':co.midOverride===true?'Yes':co.midOverride===false?'No':'','Higher-touch':yn(co.higherTouch),'Organized':yn(co.organized),
-    'Optimal Score':optimal(co),'Trigger':co.trigger,'Trigger Note':co.triggerNote,'Trigger Date':co.triggerDate,'Current Provider':co.provider,'Renewal Date':co.renewalDate,'Renewal Dismissed':co.renewalDismissed||'','Domain':co.domain||'','Quoted Amount':co.quote||'','Emails Paused':yn(co.emailBlocked),'Email Verification (data)':co.emailVerify?JSON.stringify(co.emailVerify):''}));
+    'Optimal Score':optimal(co),'Trigger':co.trigger,'Trigger Note':co.triggerNote,'Trigger Date':co.triggerDate,'Current Provider':co.provider,'Renewal Date':co.renewalDate,'Renewal Dismissed':co.renewalDismissed||'','Domain':co.domain||'','Quoted Amount':co.quote||'','Emails Paused':yn(co.emailBlocked),'Checks In-house':co.inHouse?co.inHouse.date:'','Email Verification (data)':co.emailVerify?JSON.stringify(co.emailVerify):''}));
   const cfg = JSON.stringify({custom:DB.custom, settings:{...DB.settings, currentRep:undefined}, hsList:DB.hsList||null, exportedBy:{id:DB.settings.currentRep, name:DB.settings.currentRep==='all'?'Both reps':repName(DB.settings.currentRep)}});
   const Cfg = []; for (let i=0;i<cfg.length;i+=30000) Cfg.push({'Part':Cfg.length+1,'Config (scripts, cadence, schedule, settings — do not edit)':cfg.slice(i,i+30000)});
   const wb = XLSX.utils.book_new();
@@ -1621,7 +1676,7 @@ function readConfig(wb){
 }
 /* Shared = team playbook (scripts, cadence, personas, windows, scoring). Personal = your schedule, caps, rates.
    A teammate's tracker only brings the shared part; your own backup brings both. Your rep name and phone never change. */
-const SHARED_SET = ['windows','mid','address','optOut','maxPerCompany','spend','winback','hubspot','sprint','spacing'], PERSONAL_SET = ['caps','rates','connectRate','goals','daysOff','alerts','homeRep','sigOn','autoRoll'];
+const SHARED_SET = ['windows','mid','address','optOut','maxPerCompany','spend','winback','hubspot','sprint','spacing'], PERSONAL_SET = ['caps','rates','connectRate','goals','daysOff','alerts','homeRep','sigOn','autoRoll','inmail'];
 const sharedPart = (custom, settings) => JSON.stringify({sc:custom?.scripts||{}, tr:custom?.tracks||{}, pe:custom?.personas||{}, st:SHARED_SET.map(k=>settings?.[k])});
 const isPlaceholderRep = n => !String(n||'').trim() || /^rep \d+$/i.test(String(n).trim());
 function mergeReps(incoming){
@@ -1671,8 +1726,8 @@ function restoreTracker(wb){
       name:r['Company']||ex.name, state:r['State']||ex.state||'', city:r['City']||ex.city||'', employees:num(r['Employees'])||ex.employees||'', annualHires:num(r['Est Annual Hires'])||ex.annualHires||'',
       industry:r['Industry']||ex.industry||'', higherTouch:fromYn(r['Higher-touch'])||!!ex.higherTouch, organized:fromYn(r['Organized'])||!!ex.organized,
       midOverride: r['Mid-sized Override']==='Yes'?true : r['Mid-sized Override']==='No'?false : (ex.midOverride??null),
-      trigger:r['Trigger']||ex.trigger||'', triggerNote:r['Trigger Note']||ex.triggerNote||'', triggerDate:r['Trigger Date']||ex.triggerDate||'', provider:r['Current Provider']||ex.provider||'', renewalDate:r['Renewal Date']||ex.renewalDate||'', renewalDismissed:r['Renewal Dismissed']||ex.renewalDismissed||'', domain:r['Domain']||ex.domain||'', quote:+r['Quoted Amount']||ex.quote||'', emailBlocked:fromYn(r['Emails Paused'])||!!ex.emailBlocked, ...(()=>{ try { const v=r['Email Verification (data)']?JSON.parse(r['Email Verification (data)']):null; const e=ex.emailVerify; const pick = v && (!e || (v.date||'')>=(e.date||'')) ? v : e; return pick?{emailVerify:pick}:{}; } catch(e){ return {}; } })()}); }
-  const touches={}; for (const t of T){ (touches[t['PT_ID']] ||= []).push({step:t['Step ID'], ch:Object.keys(CH_LABEL).find(k=>CH_LABEL[k]===t['Channel'])||t['Channel'], label:t['Step'], date:toYmd(t['Date']), outcome:t['Outcome'], at:t['Logged At'], ...(t['Logged From']==='Run sheet'?{sheet:true}:{}), ...(t['Earlier cadence']?{archived:true, track:t['Earlier cadence']}:{}), ...(t['Reply Logged']?{replyDate:toYmd(t['Reply Logged'])}:{}), ...(t['Auto-reply']?{autoReply:t['Auto-reply']}:{})}); }
+      trigger:r['Trigger']||ex.trigger||'', triggerNote:r['Trigger Note']||ex.triggerNote||'', triggerDate:r['Trigger Date']||ex.triggerDate||'', provider:r['Current Provider']||ex.provider||'', renewalDate:r['Renewal Date']||ex.renewalDate||'', renewalDismissed:r['Renewal Dismissed']||ex.renewalDismissed||'', domain:r['Domain']||ex.domain||'', quote:+r['Quoted Amount']||ex.quote||'', emailBlocked:fromYn(r['Emails Paused'])||!!ex.emailBlocked, ...(r['Checks In-house']||ex.inHouse?{inHouse:ex.inHouse||{date:toYmd(r['Checks In-house'])||String(r['Checks In-house'])}}:{}), ...(()=>{ try { const v=r['Email Verification (data)']?JSON.parse(r['Email Verification (data)']):null; const e=ex.emailVerify; const pick = v && (!e || (v.date||'')>=(e.date||'')) ? v : e; return pick?{emailVerify:pick}:{}; } catch(e){ return {}; } })()}); }
+  const touches={}; for (const t of T){ (touches[t['PT_ID']] ||= []).push({step:t['Step ID'], ch:Object.keys(CH_LABEL).find(k=>CH_LABEL[k]===t['Channel'])||t['Channel'], label:t['Step'], date:toYmd(t['Date']), outcome:t['Outcome'], at:t['Logged At'], ...(t['Logged From']==='Run sheet'?{sheet:true}:{}), ...(t['Earlier cadence']?{archived:true, track:t['Earlier cadence']}:{}), ...(t['Reply Logged']?{replyDate:toYmd(t['Reply Logged'])}:{}), ...(t['Auto-reply']?{autoReply:t['Auto-reply']}:{}), ...(t['InMail']==='Yes'?{inmail:true}:{}), ...(t['InMail Replied']?{inmailReplied:toYmd(t['InMail Replied'])}:{}), ...(t['Follow Mode']==='Yes'?{followMode:true}:{})}); }
   const byId=new Map(DB.contacts.map(c=>[c.id,c])); let added=0, updated=0, kept=0, overlap=0, bothOwned=0;
   const byEmail=new Map(), byNameCo=new Map(); for (const c of DB.contacts){ if (c.email) byEmail.set(c.email,c); byNameCo.set(norm(c.name)+'|'+c.companyKey, c); }
   for (const r of C){
@@ -1683,7 +1738,7 @@ function restoreTracker(wb){
       tzOverride:ZONES[r['TZ Override']]?r['TZ Override']:'', startDate:toYmd(r['Cadence Start']), spacing:['biz','cal'].includes(r['Cadence Spacing'])?r['Cadence Spacing']:'', revisitDate:toYmd(r['Revisit Date']),
       discoveryDate:r['Discovery Date']||'', pauseReason:r['Pause Reason']||'', phoneBad:fromYn(r['Phone Bad']), emailBad:fromYn(r['Email Bad']), lastContacted:r['Last Contacted (import)']||'',
       priorStatus:r['Prior Status (import)']||'', notes:r['Notes']||'', touches:(touches[id]||[]).filter(t=>!t.archived), pastTouches:(touches[id]||[]).filter(t=>t.archived).map(({archived,...t})=>({...t, archived:true})), emailBlocked:fromYn(r['Email Blocked']),
-      recalls:safeJson(r['Call-backs (data)'],[]), bounces:safeJson(r['Bounces (data)'],[]), alsoOn:r['Both Reps Had It']||'', referredBy:r['Referred By']||'', liState:r['LinkedIn Status']||'', liNoPosts:fromYn(r['LinkedIn No Posts']), liSince:r['LinkedIn Since']||'', bestTime:r['Best Time']||'', hsOverride:r['Work Despite HubSpot']==='Yes', hsExported:r['HubSpot Exported']||'', noLi:r['LinkedIn Status']==='No profile', ...(r['LinkedIn Waiting (data)']?{liWait:(()=>{ try { return JSON.parse(r['LinkedIn Waiting (data)']); } catch(e){ return null; } })()}:{}), unqualReason:r['Unqualified Reason']||'', left:(()=>{ try { return r['Left (data)']?JSON.parse(r['Left (data)']):null; } catch(e){ return null; } })(), replaces:r['Replaces']||'', awayUntil:toYmd(r['Away Until'])||'', theyCall:(()=>{ try { return r['They Call (data)']?JSON.parse(r['They Call (data)']):null; } catch(e){ return null; } })(), ...(()=>{ try { const x=r['Nurture (data)']?JSON.parse(r['Nurture (data)']):null; return x?{cycle:x.cycle||null, parked:x.parked||''}:{cycle:null, parked:''}; } catch(e){ return {cycle:null, parked:''}; } })(), createdAt:(r['Created At']&&Date.parse(r['Created At']))||Date.now(), ...(r['Held (data)']?{held:(()=>{ try { return JSON.parse(r['Held (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Rolled (data)']?{rolled:(()=>{ try { return JSON.parse(r['Rolled (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Moved Steps (data)']?{defer:(()=>{ try { return JSON.parse(r['Moved Steps (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Closed-lost (data)']?{lost:(()=>{ try { return JSON.parse(r['Closed-lost (data)']); } catch(e){ return undefined; } })()}:{}), updatedAt:Date.parse(r['Updated At'])||0};
+      recalls:safeJson(r['Call-backs (data)'],[]), bounces:safeJson(r['Bounces (data)'],[]), alsoOn:r['Both Reps Had It']||'', referredBy:r['Referred By']||'', liState:r['LinkedIn Status']||'', liNoPosts:fromYn(r['LinkedIn No Posts']), liSince:r['LinkedIn Since']||'', bestTime:r['Best Time']||'', hsOverride:r['Work Despite HubSpot']==='Yes', hsExported:r['HubSpot Exported']||'', noLi:r['LinkedIn Status']==='No profile', ...(r['LinkedIn Waiting (data)']?{liWait:(()=>{ try { return JSON.parse(r['LinkedIn Waiting (data)']); } catch(e){ return null; } })()}:{}), unqualReason:r['Unqualified Reason']||'', left:(()=>{ try { return r['Left (data)']?JSON.parse(r['Left (data)']):null; } catch(e){ return null; } })(), replaces:r['Replaces']||'', awayUntil:toYmd(r['Away Until'])||'', openProfile:fromYn(r['Open Profile']), theyCall:(()=>{ try { return r['They Call (data)']?JSON.parse(r['They Call (data)']):null; } catch(e){ return null; } })(), ...(()=>{ try { const x=r['Nurture (data)']?JSON.parse(r['Nurture (data)']):null; return x?{cycle:x.cycle||null, parked:x.parked||''}:{cycle:null, parked:''}; } catch(e){ return {cycle:null, parked:''}; } })(), createdAt:(r['Created At']&&Date.parse(r['Created At']))||Date.now(), ...(r['Held (data)']?{held:(()=>{ try { return JSON.parse(r['Held (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Rolled (data)']?{rolled:(()=>{ try { return JSON.parse(r['Rolled (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Moved Steps (data)']?{defer:(()=>{ try { return JSON.parse(r['Moved Steps (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Closed-lost (data)']?{lost:(()=>{ try { return JSON.parse(r['Closed-lost (data)']); } catch(e){ return undefined; } })()}:{}), updatedAt:Date.parse(r['Updated At'])||0};
     if (!DB.companies[inc.companyKey]) DB.companies[inc.companyKey]={key:inc.companyKey,name:r['Company']||inc.companyKey,state:r['State']||'',employees:num(r['Employees']),annualHires:num(r['Est Annual Hires']),higherTouch:false,organized:false,midOverride:null,trigger:'',triggerNote:''};
     if (inc.status==='Attempting' && !inc.startDate) inc.status='New';
     let ex=byId.get(id);
@@ -1899,7 +1954,7 @@ function todayModel(){
   for (const it of emails){ it.z=zoneInfo(it.c).zone; it.w=chWindow(it.z,'email'); }
   for (const it of lis){ it.z=zoneInfo(it.c).zone; it.w=chWindow(it.z,'linkedin'); }
   const byWin=(a,b)=> a.w.rank-b.w.rank || (ZONES[a.z]?.order??9)-(ZONES[b.z]?.order??9) || (a.due<b.due?-1:a.due>b.due?1:0) || priority(b.c)-priority(a.c);
-  emails.sort(byWin); lis.sort(byWin);
+  emails.sort(byWin); lis.sort((a,b)=> liRank(a.c)-liRank(b.c) || byWin(a,b));
   const revisits = DB.contacts.filter(c=>mine(c) && c.status==='Nurture' && !c.cycle && c.revisitDate && c.revisitDate<=t && c.source!=='Closed lost');
   const lostDue = DB.contacts.filter(c=>mine(c) && c.status==='Nurture' && c.source==='Closed lost' && c.revisitDate && c.revisitDate<=t).sort((a,b)=>a.revisitDate.localeCompare(b.revisitDate) || priority(b)-priority(a));
   const lostSoon = DB.contacts.filter(c=>mine(c) && c.status==='Nurture' && c.source==='Closed lost' && c.revisitDate>t && c.revisitDate<=addDays(t,14)).length;
@@ -1965,7 +2020,7 @@ function renderToday(){
     <div class="qrow2"><div class="zonestrip">${strip}</div><details class="small muted"><summary>Why ${rec.today}?</summary>${rec.ramp?(()=>{ const R=rec.ramp; return `<b>Ramp-up</b> <span class="tag warn small">not in playbook, review</span>: to keep <b>${caps.dials} dials a day</b> over the next ${R.H} business days, the calls already on the books (follow-ups, call-backs${DB.contacts.some(c=>mine(c)&&c.cycle)?', nurture re-contacts':''}${m.t===R.days[0]?' and dials you\'ve logged today':''}) come to about <b>${Math.round(R.bookedDay)} a day</b>, so start <b>${R.startsToday} new contacts today</b> and about ${R.startsDay} a day over the next week (${R.days.slice(0,5).map(d=>`${parseYmd(d).toLocaleDateString('en-US',{weekday:'short'})} ${R.startsBy.get(d)}`).join(', ')}). ${(DB.settings.spacing||'biz')==='cal'?'Days 3 and 5 of the cadence roll weekend dates to Monday, so the plan starts more early in the week and fewer later to keep each day even':'Cadence days count as business days, so new contacts spread their calls evenly across the week'}${R.startedToday?`. You've started ${R.startedToday} today, so <b>${rec.today} more</b>`:''}${R.ready<R.startsToday-R.startedToday?`. Only <b>${R.ready}</b> are ready in the queue (the rest are held by the ${q.max}-per-company limit or the queue is short)`:''}. Each new contact gives about ${rec.e.sprint?rec.e.sprint.call.toFixed(1):rec.callsPer.toFixed(1)} calls in its first week, because some answer early. Once nurture re-contacts are running, about <b>${rec.steady} a day</b> holds the target.<br>Emails at this pace: about <b>${Math.round(R.emailsDay)} a day</b>, and LinkedIn about <b>${Math.round(R.liDay)} a day</b>${R.liDay>caps.linkedin+0.5?` (cap ${caps.linkedin})`:''}, over the next ${R.H} business days${R.emailsDay>caps.emails+0.5?`, over your ${caps.emails}-email cap: the cadence pairs every call step with an email, so more dials mean more emails. Cut email steps on the Cadence tab, or agree a higher cap with your manager`:''}.`; })():`To average <b>${caps.dials} cadence dials a day</b>, start about <b>${rec.steady} new contacts a day</b>. Pick one rep under Working as to see the ramp-up plan.`}${lr.n>=30?` Your live-answer rate so far: ${(lr.rate*100).toFixed(0)}% on ${lr.n} dials.`:''}<br>Your call blocks (${cap.blocks.map(b=>esc(b.label)).join(', ')||'none'}) hold about <b>${cap.dials} dials</b> a day at ${DB.settings.rates.call} an hour.${cap.dials>caps.dials?` To fill them, raise your dial target: <button class="btn sm" data-act="useCallCap" data-n="${cap.dials}">Use ${cap.dials} as my dial target</button> (not in playbook, review: the playbook's block is 30 dials).`:''}</details></div></div>`;
   if (m.recalls.length){ h += `<h2 id="sec-recalls">Scheduled call-backs <span class="count">${m.recalls.length}</span>${DB.settings.alerts?.on?'<span class="tag good small" title="Alerts before each call-back">🔔 alerts on</span>':'<button class="btn sm" data-act="alertsOn">🔔 Alert me before call-backs</button>'}</h2><p class="small muted" style="margin-top:-4px">Fixed times: these come before everything else. No answer sets one retry for tomorrow at the same time (up to 3 tries).</p>` + m.recalls.map(x=>taskRecall(x,all)).join(''); }
   if (m.connected.length){ h += `<h2 id="sec-connected">Connected: set the next step <span class="count">${m.connected.length}</span></h2>` + m.connected.map(c=>`<div class="task"><div>${who(c,all)}</div><div class="small muted">${lastTouch(c)?`${esc(lastTouch(c).outcome)} on ${prettyDate(lastTouch(c).date)}`:''}</div><div class="outs">
-    ${pendingRecalls(c)[0]?`<span class="tag good">Call-back ${prettyDate(pendingRecalls(c)[0].date)} ${fmtHour(hrs(pendingRecalls(c)[0].time))}</span>`:`<button class="btn sm" data-act="newCallback" data-id="${c.id}">Schedule call-back</button>`}<button class="btn sm good" data-act="setStatus" data-id="${c.id}" data-status="Discovery booked">Discovery booked</button><button class="btn sm" data-act="setStatus" data-id="${c.id}" data-status="Nurture">Nurture</button><button class="btn sm" data-act="theyCallOpen" data-id="${c.id}" title="They said they'll call you back">They'll call me</button><button class="btn sm" data-act="signedOpen" data-id="${c.id}" title="They just signed with another provider: come back 90 days before their renewal">Just signed elsewhere</button><button class="btn sm bad" data-act="setStatus" data-id="${c.id}" data-status="Unqualified">Unqualified</button></div></div>`).join(''); }
+    ${pendingRecalls(c)[0]?`<span class="tag good">Call-back ${prettyDate(pendingRecalls(c)[0].date)} ${fmtHour(hrs(pendingRecalls(c)[0].time))}</span>`:`<button class="btn sm" data-act="newCallback" data-id="${c.id}">Schedule call-back</button>`}<button class="btn sm good" data-act="setStatus" data-id="${c.id}" data-status="Discovery booked">Discovery booked</button><button class="btn sm" data-act="setStatus" data-id="${c.id}" data-status="Nurture">Nurture</button><button class="btn sm" data-act="theyCallOpen" data-id="${c.id}" title="They said they'll call you back">They'll call me</button><button class="btn sm" data-act="signedOpen" data-id="${c.id}" title="They just signed with another provider: come back 90 days before their renewal">Just signed elsewhere</button><button class="btn sm" data-act="inHouse" data-id="${c.id}" title="They run background checks in-house: revisit in 6 months with the in-house script">In-house checks</button><button class="btn sm bad" data-act="setStatus" data-id="${c.id}" data-status="Unqualified">Unqualified</button></div></div>`).join(''); }
   if (m.theyCall && m.theyCall.length){ h += `<h2 id="sec-theycall">Waiting for them to call <span class="count">${m.theyCall.length}</span></h2><p class="small muted" style="margin-top:-4px">They said they'd call you back. If they haven't by the date, a call-back to them is on Today that morning.</p>` + m.theyCall.map(c=>`<div class="task"><div>${who(c,all)}</div><div class="small">Said on ${prettyDate(c.theyCall.since)}${c.theyCall.note?`: “${esc(c.theyCall.note)}”`:''}<br><span class="muted">Call them ${prettyDate(c.theyCall.by)} if not</span></div><div class="outs"><button class="btn sm good" data-act="theyCalled" data-id="${c.id}">They called</button><button class="btn sm good" data-act="setStatus" data-id="${c.id}" data-status="Discovery booked">Discovery booked</button></div></div>`).join(''); }
   if (m.needEmail.length){ h += `<h2 id="sec-needemail">Need a new email address <span class="count">${m.needEmail.length}</span></h2><p class="small muted" style="margin-top:-4px">These bounced. Their emails are paused and calls and LinkedIn continue. Add a working address to restart emails.</p><div class="seg">${m.needEmail.map(c=>`<button class="btn sm" data-act="bounceOpen" data-id="${c.id}">${esc(c.name)} · ${esc(company(c).name)}</button>`).join('')}</div>`; }
   { const rolled=[...m.calls, ...m.emails, ...m.lis].filter(it=>it.due===m.t && it.c.rolled && it.c.rolled[it.step.id]);
@@ -1981,7 +2036,8 @@ function renderToday(){
   h += m.calls.length ? m.calls.map(it=>taskCall(it,all)).join('') : `<div class="empty">No calls due.</div>`;
   h += `<h2 id="sec-emails">2 · Emails <span class="count">${m.emails.length}</span></h2><p class="small muted" style="margin-top:-4px">Sorted: prospects in their best email window right now first (${esc(DB.settings.windows.email)} their time), then east to west. One email per address per day: a second one waits until the next working day.</p>`;
   h += m.emails.length ? m.emails.map(it=>taskEmail(it,all)).join('') : `<div class="empty">No emails due.</div>`;
-  h += `<h2 id="sec-li">3 · LinkedIn <span class="count">${m.lis.length}</span></h2><p class="small muted" style="margin-top:-4px">Sorted: best LinkedIn window right now first (${esc(DB.settings.windows.linkedin)} their time), then east to west.</p>`;
+  { const im=UI._im=inmailState();
+  h += `<h2 id="sec-li">3 · LinkedIn <span class="count">${m.lis.length}</span></h2><div class="card" style="margin:-2px 0 10px;padding:10px 14px"><b>InMails this month: ${im.used} of ${im.budget} used</b> · ${im.remaining} left · ${im.daysLeft} working day${im.daysLeft===1?'':'s'} left · about <b>${im.perDay} a day</b>${im.t1due?` · ${im.t1due} kept for Tier 1 message steps still due this month`:''}${im.replied?` · ${im.replied} answered within 90 days (Sales Navigator usually returns those credits; estimate)`:''}<div class="small muted" style="margin-top:4px">Sorted: LinkedIn Tier 1 first, then Tier 2 and 3, best window first within each. Tier 1 ($75K–$150K with email, direct and business phone) gets InMails first; Tier 2 ($10K–$75K) only from credits Tier 1 doesn't need; Tier 3 follows and comments. Anyone who accepted, or has an open profile, gets a free message. <span class="tag warn small">not in playbook, review</span></div></div>`; }
   h += m.lis.length ? m.lis.map(it=>taskLi(it,all)).join('') : `<div class="empty">No LinkedIn touches due.</div>`;
   { const wait=DB.contacts.filter(c=>mine(c) && c.liWait).sort((a,b)=>a.liWait.date.localeCompare(b.liWait.date));
     if (wait.length) h += `<h2 id="sec-liwait">LinkedIn: waiting for response <span class="count">${wait.length}</span></h2><p class="small muted" style="margin-top:-4px">Every LinkedIn message you've sent (1st message or follow-up) waits here until they answer. Their cadence keeps going; log Replied or No response here when you know.</p>` +
@@ -2110,15 +2166,17 @@ setInterval(checkAlerts, 30000);
 function researchList(){ return queueModel().waiting.filter(c=>mine(c) && (needsContact(c) || !(c.directPhone||c.businessPhone) || !c.email)).sort((a,b)=>priority(b)-priority(a)); }
 function who(c, all){
   const co=company(c), o=optimal(co);
-  return `<span class="name" data-act="open" data-id="${c.id}">${esc(c.name)}</span> <span class="opt opt${o}" title="Optimal score">${o}</span> ${bandTag(co)}${c.source==='Old lead'?' <span class="tag warn">Old lead</span>':''}${c.source && !['ZoomInfo','Old lead','Closed lost','Referral'].includes(c.source)?` <span class="tag ${c.source==='Inbound'?'good':''}">${esc(c.source)}</span>`:''}${c.source==='Referral'&&!c.referredBy?' <span class="tag good">Referral</span>':''}${c.track==='nurture'&&c.cycle&&c.status==='Attempting'?` <span class="tag" title="Nurture re-contact after the sprint">Nurture ${c.cycle.round} of ${c.cycle.of||DB.settings.sprint?.rounds||3}</span>`:''}${c.replaces?` <span class="tag good" title="Took over from ${esc(c.replaces)}">Replaces ${esc(c.replaces)}</span>`:''}${c.left?` <span class="tag bad" title="${esc(c.left.note||'')}">${esc(c.left.reason)}${c.left.replacedBy?' → '+esc(c.left.replacedBy):''}</span>`:''}${needsContact(c)?' <span class="tag warn">Contact needed</span>':''}${c.awayUntil && c.awayUntil>todayStr()?` <span class="tag warn" title="Nothing goes to them before this date">Away until ${esc(prettyDate(c.awayUntil))}</span>`:''}${c.alsoOn?' <span class="tag bad" title="'+esc(c.alsoOn)+'">Both had it</span>':''}${c.referredBy && !c.replaces?` <span class="tag good">Referred by ${esc(c.referredBy)}</span>`:''}${(()=>{ const hm=hsMatch(c); return hm?` <span class="tag bad" title="Matched on ${hm.by}">In HubSpot: ${esc(hm.label)}</span>`:''; })()}${all?` <span class="tag">${esc(repName(c.owner))}</span>`:''}<br>
+  return `<span class="name" data-act="open" data-id="${c.id}">${esc(c.name)}</span> <span class="opt opt${o}" title="Optimal score">${o}</span> ${bandTag(co)}${c.source==='Old lead'?' <span class="tag warn">Old lead</span>':''}${c.source && !['ZoomInfo','Old lead','Closed lost','Referral'].includes(c.source)?` <span class="tag ${c.source==='Inbound'?'good':''}">${esc(c.source)}</span>`:''}${c.source==='Referral'&&!c.referredBy?' <span class="tag good">Referral</span>':''}${c.track==='nurture'&&c.cycle&&c.status==='Attempting'?` <span class="tag" title="Nurture re-contact after the sprint">Nurture ${c.cycle.round} of ${c.cycle.of||DB.settings.sprint?.rounds||3}</span>`:''}${c.replaces?` <span class="tag good" title="Took over from ${esc(c.replaces)}">Replaces ${esc(c.replaces)}</span>`:''}${c.left?` <span class="tag bad" title="${esc(c.left.note||'')}">${esc(c.left.reason)}${c.left.replacedBy?' → '+esc(c.left.replacedBy):''}</span>`:''}${needsContact(c)?' <span class="tag warn">Contact needed</span>':''}${company(c).inHouse?' <span class="tag" title="They said they run background checks in-house">Checks in-house</span>':''}${c.awayUntil && c.awayUntil>todayStr()?` <span class="tag warn" title="Nothing goes to them before this date">Away until ${esc(prettyDate(c.awayUntil))}</span>`:''}${c.alsoOn?' <span class="tag bad" title="'+esc(c.alsoOn)+'">Both had it</span>':''}${c.referredBy && !c.replaces?` <span class="tag good">Referred by ${esc(c.referredBy)}</span>`:''}${(()=>{ const hm=hsMatch(c); return hm?` <span class="tag bad" title="Matched on ${hm.by}">In HubSpot: ${esc(hm.label)}</span>`:''; })()}${all?` <span class="tag">${esc(repName(c.owner))}</span>`:''}<br>
   <span class="small muted">${esc(c.title)}</span><br><span class="small">${esc(co.name)}${co.state?' · '+esc(co.state):''}${co.trigger?` · <span class="tag good">${esc(co.trigger)}</span>`:''}</span>`;
 }
 function stepLine(it){ const late=daysBetween(it.due,todayStr()), moved=it.c.defer&&it.c.defer[it.step.id]; return `<b>${esc(it.step.label)}</b>${late>0?` <span class="tag bad">${late}d overdue</span>`:late<0?` <span class="tag">due ${prettyDate(it.due)}</span>`:''}${it.c.held&&it.c.held[it.step.id]&&it.c.held[it.step.id].on<it.due&&late<=0?` <span class="tag warn" title="Held so the same address didn't get two emails in one day">held from ${esc(prettyDate(it.c.held[it.step.id].on))}: ${esc(it.c.held[it.step.id].why)}</span>`:''}${it.c.rolled&&it.c.rolled[it.step.id]&&late<=0?` <span class="tag warn" title="Not marked on ${esc(prettyDate(it.c.rolled[it.step.id].from))}, so it moved here by itself">moved from ${esc(prettyDate(it.c.rolled[it.step.id].from).split(',')[0])}, ${esc(prettyDate(it.c.rolled[it.step.id].from).split(', ')[1]||'')}</span>`:moved&&late<=0?' <span class="tag warn">moved</span>':''}${it.behind?` <span class="tag">+${it.behind} more behind</span>`:''}<br><span class="small muted">${TRACK_LABEL[it.c.track]||'Cold cadence'}${it.c.track==='nurture'&&it.c.cycle?` · round ${it.c.cycle.round} of ${it.c.cycle.of||DB.settings.sprint?.rounds||3}`:` · day ${it.step.day}`}</span>`; }
 /* Connection-request steps offer both: send the request, or (open profiles that need no follow or connection) just message them. */
 function liOutcomes(st){ return String(st.li||'').startsWith('connect') ? ['Request sent', ...OUTCOMES.linkedin] : OUTCOMES.linkedin; }
-const outLabel = (it, o) => { if (it.step.ch==='linkedin' && o==='Message sent'){ const n=liMsgCount(it.c); return n ? `Follow-up ${n} sent` : '1st message sent'; } return o; };
-function outBtns(it){ const outs = it.step.ch==='linkedin' ? liOutcomes(it.step) : OUTCOMES[it.step.ch], ln=lastNote(it.c);
-  return `${ln?`<div class="lastnote full" title="${esc(it.c.notes)}">📝 ${esc(ln)}</div>`:''}<div class="qnote full"><input type="text" data-qnote="${it.c.id}" placeholder="Note (saved with the outcome you click), e.g. retired; new HR manager is Dana, left her a voicemail" maxlength="400"><button class="btn sm" data-act="saveNote" data-id="${it.c.id}">Save note</button></div><div class="outs full">${outs.filter(o=>OUT_MAIN[it.step.ch].includes(o) || (o==='Not interested' && it.c.liState==='Connected')).map(o=>`<button class="btn sm ${['Connected','Meeting booked','Replied'].includes(o)?'good':['Bounced','Not interested'].includes(o)?'bad':''}" data-act="log" data-id="${it.c.id}" data-step="${it.step.id}" data-out="${esc(o)}">${esc(outLabel(it,o))}</button>`).join('')}<select class="moreOut" data-id="${it.c.id}" data-step="${it.step.id}" aria-label="More outcomes"><option value="">More…</option>${OUT_MORE[it.step.ch].map(([g,os])=>`<optgroup label="${esc(g)}">${os.filter(o=>(o.startsWith('act:') || outs.includes(o) || it.step.ch==='email') && !(o==='Not interested' && it.c.liState==='Connected')).map(o=>`<option value="${esc(o)}">${esc(OUT_SHORT[o]||o)}</option>`).join('')}</optgroup>`).join('')}</select>${it.due<=todayStr()?`<button class="btn sm" data-act="defer" data-id="${it.c.id}" data-step="${it.step.id}" title="Move just this touch to the next business day" style="margin-left:auto">Do tomorrow</button>`:''}</div>`; }
+const outLabel = (it, o) => { if (o==='InMail sent') return liMsgCount(it.c) ? 'Follow-up InMail sent (1 credit)' : 'InMail sent (1 credit)'; if (it.step.ch==='linkedin' && o==='Message sent'){ const n=liMsgCount(it.c); return n ? `Follow-up ${n} sent` : '1st message sent'; } return o; };
+function liMain(it){ const m=liMode(it.c, it.step);
+  return m==='free' ? ['Message sent','Accepted','Replied','Skip'] : m==='inmail' ? ['InMail sent','Accepted','Replied','Skip'] : m==='follow' ? ['Followed','Commented','Accepted','Replied','Skip'] : OUT_MAIN.linkedin; }
+function outBtns(it){ const outs = it.step.ch==='linkedin' ? liOutcomes(it.step) : OUTCOMES[it.step.ch], ln=lastNote(it.c), main = it.step.ch==='linkedin' ? liMain(it) : OUT_MAIN[it.step.ch], conn = it.step.ch==='linkedin' && !isMsgStep(it.step);
+  return `${ln?`<div class="lastnote full" title="${esc(it.c.notes)}">📝 ${esc(ln)}</div>`:''}<div class="qnote full"><input type="text" data-qnote="${it.c.id}" placeholder="Note (saved with the outcome you click), e.g. retired; new HR manager is Dana, left her a voicemail" maxlength="400"><button class="btn sm" data-act="saveNote" data-id="${it.c.id}">Save note</button></div><div class="outs full">${main.filter(o=>outs.includes(o)).concat(it.c.liState==='Connected' && outs.includes('Not interested') && it.step.ch==='linkedin' ? ['Not interested'] : []).map(o=>`<button class="btn sm ${['Connected','Meeting booked','Replied'].includes(o)?'good':['Bounced','Not interested'].includes(o)?'bad':o==='InMail sent'?'primary':''}" data-act="log" data-id="${it.c.id}" data-step="${it.step.id}" data-out="${esc(o)}">${esc(outLabel(it,o))}</button>`).join('')}<select class="moreOut" data-id="${it.c.id}" data-step="${it.step.id}" aria-label="More outcomes"><option value="">More…</option>${OUT_MORE[it.step.ch].map(([g,os])=>`<optgroup label="${esc(g)}">${os.filter(o=>(o.startsWith('act:') || outs.includes(o) || it.step.ch==='email') && !main.includes(o) && !(o==='Not interested' && it.c.liState==='Connected') && !(conn && ['InMail sent','Sent free','Commented'].includes(o))).map(o=>`<option value="${esc(o)}">${esc(OUT_SHORT[o]||o)}</option>`).join('')}</optgroup>`).join('')}</select>${it.due<=todayStr()?`<button class="btn sm" data-act="defer" data-id="${it.c.id}" data-step="${it.step.id}" title="Move just this touch to the next business day" style="margin-left:auto">Do tomorrow</button>`:''}</div>`; }
 function phoneBtns(c){ return [c.directPhone&&`<a class="btn sm" href="${telHref(c.directPhone)}">Direct ${esc(c.directPhone)}</a>${c.phoneBad?' <span class="tag bad">flagged wrong</span>':''}`, c.businessPhone&&`<a class="btn sm" href="${telHref(c.businessPhone)}">Business ${esc(c.businessPhone)}</a>`].filter(Boolean).join(' ') || '<span class="tag bad">No phone on file</span>'; }
 function brushOffs(c){ const ks=Object.keys(TALK).filter(k=>/^T/.test(k)); if (!ks.length) return '';
   return `<details class="script full"><summary>Brush-offs: ledge, mirror, pause, ask</summary>${ks.map(k=>`<div class="small" style="margin:4px 0"><b>${esc(TALK[k].name)}</b><br>${sayHtml(fill(TALK[k].text,c))}</div>`).join('')}</details>`; }
@@ -2157,10 +2215,16 @@ function taskEmail(it, all){
     <details class="script full"><summary>Preview email</summary><div class="say">${sayHtml(e.body)}</div></details>
     ${outBtns(it)}</div>`;
 }
+function liCardMode(it){
+  const c=it.c, g=liGrade(c), md=liMode(c, it.step), im=UI._im||inmailState(), tg=`<span class="tag ${g===1?'good':g===2?'':'warn'}" title="LinkedIn priority: Tier 1 $75K–$150K with email, direct and business phone; Tier 2 $10K–$75K; Tier 3 everyone else">LinkedIn Tier ${g}</span>`;
+  const txt = md==='connect' ? 'Connection request: free' : md==='free' ? (c.liState==='Connected' ? 'Free message: they accepted' : 'Free message: open profile') : md==='inmail' ? `<b>Uses 1 InMail credit</b> · ${im.used} of ${im.budget} used this month` : g===3 ? 'No InMail for Tier 3: follow them and comment on a post' : `No InMail credits left for Tier ${g} this month: follow and comment`;
+  const tog = isMsgStep(it.step) && c.liState!=='Connected' ? `<button class="btn sm" data-act="liOpen" data-id="${c.id}" title="${c.openProfile?'Not an open profile after all':'Open profiles can be messaged free, without connecting'}">${c.openProfile?'Not an open profile':'Open profile? Message free'}</button>` : '';
+  return `<div class="small" style="margin-top:6px">${tg} ${txt} ${tog}</div>`;
+}
 function taskLi(it, all){
   const c=it.c, key=resolveLi(c,it.step), s=LINKEDIN[key], txt=fill(s.text,c), subj=fill(liSubject(key),c), z=zoneInfo(c).zone, lw=it.w||chWindow(z,'linkedin');
   return `<div class="task ${bandCls(c)}">
-    <div>${who(c,all)}${z?`<div class="small" style="margin-top:4px">${zoneBadge(z)} ${clockIn(ZONES[z].iana)} their time <span class="win ${lw.key}">${lw.label}</span><br><span class="muted">${chHint(z,'linkedin')}</span></div>`:''}</div>
+    <div>${who(c,all)}${z?`<div class="small" style="margin-top:4px">${zoneBadge(z)} ${clockIn(ZONES[z].iana)} their time <span class="win ${lw.key}">${lw.label}</span><br><span class="muted">${chHint(z,'linkedin')}</span></div>`:''}${liCardMode(it)}</div>
     <div class="small">${c.linkedin?'Profile on file':c.liKnown?'Profile exists (link not in import): search opens it':'No profile on file: search by name'}${c.liState?`<br><span class="tag ${c.liState==='Connected'||c.liState==='Following'?'good':'warn'} li-state">${esc(c.liState)}${c.liSince?' since '+prettyDate(c.liSince):''}</span>`:''}<br><span class="small muted">${String(it.step.li||'').startsWith('connect')?'<b>Request sent</b> once you send it.':'<b>Message sent</b> once you send it.'} Can't connect? <b>Followed</b> if you followed them; <b>Follow requested</b> if the profile is private.</span></div>
     <div>${stepLine(it)}<div class="small" style="margin-top:4px"><span class="muted">Subject: <b>${esc(subj)}</b></span> <button class="btn sm copy" data-act="copy" data-text="${esc(subj)}" title="Copy the subject line (InMail / Sales Navigator messages need one)">Copy subject</button></div><div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><a class="btn sm primary" href="${esc(linkedinUrl(c))}" target="_blank" rel="noopener">Open LinkedIn</a><button class="btn sm" data-act="copy" data-text="${esc(txt)}">Copy message</button></div></div>
     <details class="script full"><summary>${esc(s.name)}</summary><div class="say">${sayHtml(txt)}</div>${it.step.li==='m1'&&!c.liNoPosts?'<div class="small muted">Not accepted yet? Comment on one of their recent posts instead.</div>':''}${key.startsWith('connect')?'<div class="small muted">Keep it under 200 characters, no pitch.</div>':''}${it.step.li==='m1'&&c.liNoPosts?'<div class="small muted">No posts to comment on: send it as an InMail with the subject, or Follow them.</div>':''}</details>
@@ -2231,6 +2295,7 @@ const LEAD_VIEWS = [
   ['hot','Connected or booked', c=>c.status==='Connected' || c.status==='Discovery booked'],
   ['quiet','No touch in 14+ days', c=>['Attempting','Connected'].includes(c.status) && (()=>{ const t=lastTouch(c); return !t || daysBetween(t.date, todayStr())>=14; })()],
   ['nurture','Nurture: re-contact due', c=>c.status==='Nurture' && !!c.cycle],
+  ['liT1','LinkedIn Tier 1', c=>liGrade(c)===1 && !['Do not contact','Unqualified','Discovery booked'].includes(c.status)],
   ['dupEmail','Same email on 2+ contacts', c=>{ const a=addrOf(c); return !!a && !['Do not contact','Unqualified'].includes(c.status) && DB.contacts.some(o=>o!==c && addrOf(o)===a && !['Do not contact','Unqualified'].includes(o.status)); }],
   ['verify','Email verification (Sendio)', c=>!!company(c).emailVerify],
   ['left','No longer there or replacement', c=>!!c.left || !!c.replaces],
@@ -2438,7 +2503,7 @@ function renderScripts(){
 }
 
 /* ---------- Settings tab ---------- */
-const SET_SHORT = {'Sprint and nurture':'Sprint and nurture','Call-back alerts':'Call-back alerts','Does it save?':'Saving and backup','Reps':'Reps','Daily capacity':'Daily capacity','Best windows':'Call and email windows','HubSpot':'HubSpot','Days off':'Days off','Closed-lost follow-up timing':'Closed-lost timing','Optimal scoring and account size':'Scoring and account size','Email signature':'Email signature','Data':'Data'};
+const SET_SHORT = {'LinkedIn InMails':'LinkedIn InMails','Sprint and nurture':'Sprint and nurture','Call-back alerts':'Call-back alerts','Does it save?':'Saving and backup','Reps':'Reps','Daily capacity':'Daily capacity','Best windows':'Call and email windows','HubSpot':'HubSpot','Days off':'Days off','Closed-lost follow-up timing':'Closed-lost timing','Optimal scoring and account size':'Scoring and account size','Email signature':'Email signature','Data':'Data'};
 function renderSettings(){
   let i=0; const secs=[];
   const body=renderSettingsBody().replace(/<div class="card"([^>]*)><h3 style="margin-top:0">([^<]*)/g, (m0, attrs, title)=>{ const id='set-'+(i++); const key=Object.keys(SET_SHORT).find(k=>title.startsWith(k)); secs.push([id, SET_SHORT[key]||title]); return `<div class="card" id="${id}"${attrs}><h3 style="margin-top:0">${title}`; });
@@ -2467,6 +2532,8 @@ function renderSettingsBody(){
     <div class="fields" style="margin-top:8px"><label>Calls before nurture<input type="number" min="0" max="10" data-sprint="calls" value="${s.sprint.calls}"></label><label>Emails before nurture<input type="number" min="0" max="10" data-sprint="emails" value="${s.sprint.emails}"></label><label>LinkedIn messages before nurture<input type="number" min="0" max="5" data-sprint="li" value="${s.sprint.li}"></label>
     <label>Days between nurture re-contacts<input type="number" min="3" max="90" data-sprint="days" value="${s.sprint.days}"></label><label>Nurture rounds before parking<input type="number" min="0" max="10" data-sprint="rounds" value="${s.sprint.rounds}"></label></div>
     <p class="small muted">Cold sprint now: ${(()=>{ const n=touchesPerContact(); return `${n.call} calls, ${n.email} emails, ${n.linkedin} LinkedIn touches, ending on ${(DB.settings.spacing||'biz')==='cal'?'':'business '}day ${Math.max(0,...sprintCut(TRACKS.cold, STUB('cold')).map(x=>x.day))}`; })()}. Edit the nurture call and email on the Cadence tab.</p></div>
+  <div class="card" style="margin-top:12px"><h3 style="margin-top:0">LinkedIn InMails</h3><p class="small muted" style="margin-top:0">Not in playbook, review. Sales Navigator InMail credits for you (your teammate sets their own). Tier 1: accounts from the amount below up to the prime maximum, with email, direct and business phone. Tier 2: the rest of the prime range. Tier 3: everyone else, who get a follow and a comment instead of an InMail. Anyone who accepted the connection, or has an open profile, gets a free message.</p>
+    <div class="fields"><label>InMails a month<input type="number" min="0" max="500" data-im="monthly" value="${(s.inmail||{}).monthly??50}"></label><label>Tier 1 starts at ($ a year)<input type="number" min="0" step="5000" data-im="tier1Min" value="${(s.inmail||{}).tier1Min??75000}"></label></div></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Best windows (prospect's local time)</h3><p class="small muted">Ranges like <code>8-11, 16-17</code> or <code>8:30-10:30, 2pm-4pm</code>. "Best" ranks first; "OK" is the fallback.</p>
     <div class="fields">${winInp('call','Calls: best')}${winInp('callOk','Calls: OK')}${winInp('email','Emails: best')}${winInp('emailOk','Emails: OK')}${winInp('linkedin','LinkedIn: best')}${winInp('linkedinOk','LinkedIn: OK')}</div></div>
   <div class="card" style="margin-top:12px"><h3 style="margin-top:0">Call-back alerts</h3><p class="small muted" style="margin-top:0">A notification a few minutes before each call-back, with their name, company, phone and your note. It works while this app is open in a browser tab (it can be in the background). ${'Notification' in window ? (Notification.permission==='denied' ? '<b>Notifications are blocked for this site in your browser settings</b>, so you\'ll get the in-app alert and sound only.' : '') : 'This browser has no notifications, so you\'ll get the in-app alert and sound only.'}</p>
@@ -3021,6 +3088,8 @@ document.addEventListener('click', e=>{
     case 'awayClear': if (c){ c.awayUntil=''; touch(c); save(); render(); toast(`${c.name}: no longer marked away. Touches already moved stay where they are.`); } break;
     case 'theyCallOpen': if (c){ UI.modal={type:'theyCall', cid:c.id}; renderModal(); } break;
     case 'theyCallSave': saveTheyCall(); break;
+    case 'liOpen': if (c){ c.openProfile=!c.openProfile; touch(c); save(); render(); toast(c.openProfile ? `${c.name}: open profile, so the message is free` : `${c.name}: not an open profile`); } break;
+    case 'inHouse': if (c){ setInHouse(c); save(); render(); toast(`${company(c).name} runs checks in-house. ${c.name} comes back ${prettyDate(c.revisitDate)} with the in-house script; colleagues paused.`); } break;
     case 'theyCalled': if (c){ theyCalled(c); save(); render(); toast(`${c.name} called back: set the next step under Connected.`); } break;
     case 'closeModal': UI.modal=null; renderModal(); break;
     case 'addLead': UI.modal={type:'addLead'}; renderModal(); break;
@@ -3224,6 +3293,7 @@ document.addEventListener('change', async e=>{
   if (d.rep){ const r=DB.settings.reps.find(x=>x.id===d.rep); if (r){ r[d.rf]=el.value; save(); renderHeader(); } return; }
   if (d.cap){ DB.settings.caps[d.cap]=Math.max(0,+el.value||0); save(); return; }
   if (d.spacing){ DB.settings.spacing = el.value==='cal' ? 'cal' : 'biz'; save(); render(); toast(`Cadence days now count as ${DB.settings.spacing==='cal'?'calendar':'business'} days for new starts`); return; }
+  if (d.im){ DB.settings.inmail ||= {monthly:50, tier1Min:75000}; DB.settings.inmail[d.im]=Math.max(0, Math.round(+el.value||0)); save(); render(); return; }
   if (d.sprint){ const S=DB.settings.sprint; S[d.sprint] = d.sprint==='on' ? el.checked : Math.max(0, Math.round(+el.value||0)); if (d.sprint==='days') S.days=Math.max(1,S.days); save(); render(); return; }
   if (d.spend){ DB.settings.spend[d.spend]=Math.max(0,+el.value||0); save(); render(); return; }
   if (d.lost){ const c=DB.contacts.find(x=>x.id===UI.drawer); if (c){ const L=c.lost=c.lost||{}; L[d.lost]=el.value;
