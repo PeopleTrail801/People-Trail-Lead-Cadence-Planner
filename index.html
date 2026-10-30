@@ -487,15 +487,15 @@ const CH_LABEL = {call:'Call', email:'Email', linkedin:'LinkedIn'};
 const OUT_MAIN = {call:['Connected','Meeting booked','Call back','Left voicemail','No answer','Gatekeeper','Skip'],
   email:['Sent','Replied','Meeting booked','Bounced','Skip'], linkedin:['Request sent','Message sent','Accepted','Replied','Skip']};
 const OUT_MORE = {
-  call:[["Couldn't reach them",['Voicemail full','Not in dialer','Not in service','Wrong number']],["Spoke with them",['Signed elsewhere']],["Wrong person or stop",['Not the right person','Contact left','Do not call']]],
+  call:[["Couldn't reach them",['Away until','Voicemail full','Not in dialer','Not in service','Wrong number']],["Spoke with them",['Signed elsewhere']],["Wrong person or stop",['Not the right person','Contact left','Do not call']]],
   email:[["Auto-reply",['Sent · out of office','Sent · verify (Sendio)']],["Stop",['Opted out']]],
   linkedin:[["Their answer",['Not interested']],["Couldn't connect",['Followed','Follow requested']],["Can't use LinkedIn",['act:noLi','act:liDisabled']]]};
-const OUT_SHORT = {'Voicemail full':'Voicemail full','Not in dialer':'Not found in dial-by-name directory','Not in service':'Number not in service','Signed elsewhere':'Just signed with another provider','act:noLi':'No LinkedIn profile','act:liDisabled':'Messaging disabled (recipient blocks all messages)'};
+const OUT_SHORT = {'Away until':'Away until a date (greeting or someone said so)','Voicemail full':'Voicemail full','Not in dialer':'Not found in dial-by-name directory','Not in service':'Number not in service','Signed elsewhere':'Just signed with another provider','act:noLi':'No LinkedIn profile','act:liDisabled':'Messaging disabled (recipient blocks all messages)'};
 /* Every LinkedIn message has a subject (InMail and Sales Navigator won't send without one); scripts without one get a plain default. */
 const LI_SUBJECT_DEFAULT = {connect4:'HR leaders in [state]', connect1:'your post on [topic]', connect2:'congrats on the new role', connect3:'growth at [Their Company]', voice:'quick voice note'};
 const liSubject = k => (LINKEDIN[k] && LINKEDIN[k].subject) || LI_SUBJECT_DEFAULT[k] || 'quick question, [Prospect]';
 const OUTCOMES = {
-  call: ['Connected','Meeting booked','Call back','Left voicemail','No answer','Gatekeeper','Voicemail full','Not in dialer','Not in service','Wrong number','Not the right person','Contact left','Signed elsewhere','Do not call','Skip'],
+  call: ['Connected','Meeting booked','Call back','Left voicemail','No answer','Gatekeeper','Away until','Voicemail full','Not in dialer','Not in service','Wrong number','Not the right person','Contact left','Signed elsewhere','Do not call','Skip'],
   email:['Sent','Sent · out of office','Sent · verify (Sendio)','Replied','Meeting booked','Bounced','Opted out','Skip'],
   linkedin:['Message sent','Followed','Follow requested','Accepted','Replied','Not interested','Skip'],
 };
@@ -1008,6 +1008,7 @@ function handleLog(c, stepId, out, el){
   if (out==='Call back'){ if (note) addNote(c, note, 'Call back'); UI.modal={type:'callback', cid:c.id, stepId}; return renderModal(); }
   if (out==='Bounced'){ if (note) addNote(c, note, 'Bounced'); UI.modal={type:'bounce', cid:c.id, stepId}; return renderModal(); }
   if (out==='Contact left'){ UI.modal={type:'left', cid:c.id, stepId, note}; return renderModal(); }
+  if (out==='Away until'){ UI.modal={type:'away', cid:c.id, stepId, note}; return renderModal(); }
   if (out==='Signed elsewhere'){ logOutcome(c, stepId, 'Connected', note); UI.modal={type:'signed', cid:c.id}; return renderModal(); }
   if (out==='Sent · out of office' || out==='Sent · verify (Sendio)'){ logOutcome(c, stepId, 'Sent', note); UI.modal={type:'reply', cid:c.id, detected: out.includes('Sendio') ? {type:'verify', service:'Sendio'} : {type:'ooo'}}; return renderModal(); }
   logOutcome(c, stepId, out, note);
@@ -1047,11 +1048,24 @@ function undoLast(c){
 const pendingRecalls = c => (c.recalls||[]).filter(r=>r.status==='pending').sort((a,b)=>(a.date+a.time)<(b.date+b.time)?-1:1);
 function theirToRep(c, theirHHMM, D){ const z=zoneInfo(c).zone; return fmt24(hrs(theirHHMM) - (z?zoneDiff(z, D):0)); }
 function repToTheirLabel(c, repHHMM, D){ const z=zoneInfo(c).zone; return z ? `${fmtHour(hrs(repHHMM)+zoneDiff(z, D))} ${z}` : fmtHour(hrs(repHHMM)); }
+/* Nothing for this contact before the resume date (a working day). In a cadence: every remaining touch moves later by the same
+   number of days, so the spacing stays; earlier call-backs move to that day. Waiting in the queue: held until then.
+   In nurture: the re-contact or revisit moves to that day if it was earlier. Returns the days moved (cadence only). */
+function holdUntil(c, resume){
+  resume=nextBiz(resume); const today=todayStr(); let shift=0;
+  c.awayUntil=resume;
+  if (c.status==='Attempting'){ const nxt=nextStep(c); shift = nxt ? daysBetween(nxt.due<today?today:nxt.due, resume) : 0;
+    if (shift>0){ c.startDate=addDays(c.startDate, shift); if (c.defer) for (const k of Object.keys(c.defer)) if (c.defer[k]<resume) delete c.defer[k]; if (c.rolled) c.rolled={}; } }
+  else if (c.status==='Nurture' && (!c.revisitDate || c.revisitDate<resume)) c.revisitDate=resume;
+  for (const r of pendingRecalls(c)) if (r.date<resume) r.date=resume;
+  touch(c); return Math.max(0,shift);
+}
 function scheduleRecall(c, date, repTime, note, by, tries){
   (c.recalls ||= []).push({id:uid(), date, time:repTime, their:repToTheirLabel(c,repTime,date), note:note||'', by:by||'them', status:'pending', tries:tries||1, createdAt:new Date().toISOString()});
   touch(c);
 }
 function logRecall(c, rid, outcome, date, quiet){
+  if (c.theyCall && c.theyCall.rid===rid) c.theyCall=null;
   const r=(c.recalls||[]).find(x=>x.id===rid); if (!r || r.status!=='pending') return false;
   date = date || todayStr();
   if (outcome==='Cancel'){ r.status='cancelled'; touch(c); return true; }
@@ -1174,10 +1188,8 @@ function applyReply(c, type, o){
   else if (type==='ooo'){
     const back=isValidYmd(o.back)&&o.back>today ? nextBiz(o.back) : '';
     if (t) t.autoReply=`Out of office${back?' until '+prettyDate(back):''}`;
-    if (back && c.status==='Attempting'){ const nxt=nextStep(c); const shift = nxt ? daysBetween(nxt.due<today?today:nxt.due, back) : 0;
-      if (shift>0){ c.startDate=addDays(c.startDate, shift); for (const r of pendingRecalls(c)) if (r.date<back){ r.date=back; } msg=`Out of office until ${prettyDate(back)}: their next touches move ${shift} day${shift===1?'':'s'} later.`; }
-      else msg=`Out of office until ${prettyDate(back)}: their next touch is already after that.`; }
-    else msg = back ? 'Out of office noted.' : 'Out of office noted. Add a return date to pause their cadence until then.';
+    if (back){ const r=holdUntil(c, back); msg = c.status==='Attempting' ? (r>0 ? `Out of office until ${prettyDate(back)}: their next touches move ${r} day${r===1?'':'s'} later.` : `Out of office until ${prettyDate(back)}: their next touch is already after that.`) : 'Out of office noted.'; }
+    else msg = 'Out of office noted. Add a return date to pause their cadence until then.';
   }
   else if (type==='verify'){ if (t) t.autoReply=`Auto-reply: ${o.svc||'Sendio'} verification`; const co=company(c);
     co.emailVerify={service:String(o.svc||'Sendio').trim()||'Sendio', status:o.verified?'sent':'needed', date:today, by:DB.settings.homeRep||DB.settings.currentRep, email:c.email};
@@ -1229,13 +1241,13 @@ function queueModel(){
   for (const c of DB.contacts) if (c.status==='Attempting') active[c.companyKey]=(active[c.companyKey]||0)+1;
   const mineNew = DB.contacts.filter(c=>(cur==='all'||c.owner===cur) && (c.status==='New' || (c.status==='Nurture' && !c.cycle && c.revisitDate && c.revisitDate<=t)));
   const waiting = mineNew.filter(c=>c.source==='Closed lost' || !hsHeld(c)).sort((a,b)=>priority(b)-priority(a)), inHs=mineNew.length-waiting.length;
-  const ready = waiting.filter(c=>!needsContact(c) && (active[c.companyKey]||0) < max);
+  const ready = waiting.filter(c=>!needsContact(c) && !(c.awayUntil && c.awayUntil>t) && (active[c.companyKey]||0) < max);
   const mix={}; for (const c of waiting){ const k=queueKind(c); mix[k]=(mix[k]||0)+1; }
   return {active, waiting, readyCount:ready.length, max, inHs, mix};
 }
 function startTop(n){
   const {active, waiting, max} = queueModel(); let k=0; const by={};
-  for (const c of waiting){ if (k>=n) break; if (needsContact(c) || (active[c.companyKey]||0) >= max) continue; const kind=queueKind(c); startCadence(c, undefined, queueTrack(c)); by[kind]=(by[kind]||0)+1; active[c.companyKey]=(active[c.companyKey]||0)+1; k++; }
+  for (const c of waiting){ if (k>=n) break; if (needsContact(c) || (c.awayUntil && c.awayUntil>todayStr()) || (active[c.companyKey]||0) >= max) continue; const kind=queueKind(c); startCadence(c, undefined, queueTrack(c)); by[kind]=(by[kind]||0)+1; active[c.companyKey]=(active[c.companyKey]||0)+1; k++; }
   save(); render(); toast(`Started ${k} contact${k===1?'':'s'} on day 1${k?`: ${Object.entries(by).map(([x,v])=>`${v} ${x}`).join(', ')}`:''}`);
 }
 const STUB = track => ({track, touches:[], email:'x@x', companyKey:''});  /* a contact with nothing logged, for planning */
@@ -1552,7 +1564,7 @@ function buildTrackerWorkbook(){
       'Discovery Date':c.discoveryDate||'','Pause Reason':c.pauseReason,'Phone Bad':yn(c.phoneBad),'Email Bad':yn(c.emailBad),'Last Contacted (import)':c.lastContacted,
       'Prior Status (import)':c.priorStatus,'Notes':c.notes,'Email Blocked':yn(c.emailBlocked),
       'Next Call-back':(()=>{ const r=pendingRecalls(c)[0]; return r?`${r.date} ${fmtHour(hrs(r.time))} (their ${r.their})`:''; })(),
-      'Call-backs (data)':JSON.stringify(c.recalls||[]),'Bounces (data)':JSON.stringify(c.bounces||[]),'Both Reps Had It':c.alsoOn||'','Referred By':c.referredBy||'','LinkedIn Status':c.liState||'','LinkedIn Since':c.liSince||'','Best Time':c.bestTime||'','Work Despite HubSpot':c.hsOverride?'Yes':'','HubSpot Exported':c.hsExported||'','LinkedIn Waiting (data)':c.liWait?JSON.stringify(c.liWait):'','Unqualified Reason':c.unqualReason||'','Left (data)':c.left?JSON.stringify(c.left):'','Replaces':c.replaces||'','Nurture (data)':(c.cycle||c.parked)?JSON.stringify({cycle:c.cycle||null, parked:c.parked||''}):'','Created At':c.createdAt?new Date(c.createdAt).toISOString():'','Moved Steps (data)':c.defer&&Object.keys(c.defer).length?JSON.stringify(c.defer):'','Rolled (data)':c.rolled&&Object.keys(c.rolled).length?JSON.stringify(c.rolled):'','Loss Reason':c.lost?LOSS_CATS[c.lost.cat||'other']:'','Lost On':c.lost?.date||'','Quoted Amount':c.lost?.amount||'','Lost To':c.lost?.competitor||'','Closed-lost (data)':c.lost?JSON.stringify(c.lost):'','Updated At':new Date(c.updatedAt||Date.now()).toISOString()}; });
+      'Call-backs (data)':JSON.stringify(c.recalls||[]),'Bounces (data)':JSON.stringify(c.bounces||[]),'Both Reps Had It':c.alsoOn||'','Referred By':c.referredBy||'','LinkedIn Status':c.liState||'','LinkedIn Since':c.liSince||'','Best Time':c.bestTime||'','Work Despite HubSpot':c.hsOverride?'Yes':'','HubSpot Exported':c.hsExported||'','LinkedIn Waiting (data)':c.liWait?JSON.stringify(c.liWait):'','Unqualified Reason':c.unqualReason||'','Left (data)':c.left?JSON.stringify(c.left):'','Away Until':c.awayUntil||'','They Call (data)':c.theyCall?JSON.stringify(c.theyCall):'','Replaces':c.replaces||'','Nurture (data)':(c.cycle||c.parked)?JSON.stringify({cycle:c.cycle||null, parked:c.parked||''}):'','Created At':c.createdAt?new Date(c.createdAt).toISOString():'','Moved Steps (data)':c.defer&&Object.keys(c.defer).length?JSON.stringify(c.defer):'','Rolled (data)':c.rolled&&Object.keys(c.rolled).length?JSON.stringify(c.rolled):'','Loss Reason':c.lost?LOSS_CATS[c.lost.cat||'other']:'','Lost On':c.lost?.date||'','Quoted Amount':c.lost?.amount||'','Lost To':c.lost?.competitor||'','Closed-lost (data)':c.lost?JSON.stringify(c.lost):'','Updated At':new Date(c.updatedAt||Date.now()).toISOString()}; });
   const T = []; for (const c of DB.contacts) for (const t of allTouches(c)) T.push({'PT_ID':c.id,'Contact':c.name,'Company':company(c).name,'Date':t.date,'Step ID':t.step,'Channel':CH_LABEL[t.ch]||t.ch,'Step':t.label,'Outcome':t.outcome,'Logged At':t.at,'Logged From':t.sheet?'Run sheet':'App','Earlier cadence':t.archived?(t.track||'cold'):'','Reply Logged':t.replyDate||'','Auto-reply':t.autoReply||''});
   const K = Object.values(DB.companies).map(co=>({'Company Key':co.key,'Company':co.name,'State':co.state,'City':co.city,'Employees':co.employees,'Est Annual Hires':co.annualHires,'Industry':co.industry,
     'Mid-sized':isMid(co)?'Yes':'','Mid-sized Override':co.midOverride===true?'Yes':co.midOverride===false?'No':'','Higher-touch':yn(co.higherTouch),'Organized':yn(co.organized),
@@ -1640,7 +1652,7 @@ function restoreTracker(wb){
       tzOverride:ZONES[r['TZ Override']]?r['TZ Override']:'', startDate:toYmd(r['Cadence Start']), spacing:['biz','cal'].includes(r['Cadence Spacing'])?r['Cadence Spacing']:'', revisitDate:toYmd(r['Revisit Date']),
       discoveryDate:r['Discovery Date']||'', pauseReason:r['Pause Reason']||'', phoneBad:fromYn(r['Phone Bad']), emailBad:fromYn(r['Email Bad']), lastContacted:r['Last Contacted (import)']||'',
       priorStatus:r['Prior Status (import)']||'', notes:r['Notes']||'', touches:(touches[id]||[]).filter(t=>!t.archived), pastTouches:(touches[id]||[]).filter(t=>t.archived).map(({archived,...t})=>({...t, archived:true})), emailBlocked:fromYn(r['Email Blocked']),
-      recalls:safeJson(r['Call-backs (data)'],[]), bounces:safeJson(r['Bounces (data)'],[]), alsoOn:r['Both Reps Had It']||'', referredBy:r['Referred By']||'', liState:r['LinkedIn Status']||'', liNoPosts:fromYn(r['LinkedIn No Posts']), liSince:r['LinkedIn Since']||'', bestTime:r['Best Time']||'', hsOverride:r['Work Despite HubSpot']==='Yes', hsExported:r['HubSpot Exported']||'', noLi:r['LinkedIn Status']==='No profile', ...(r['LinkedIn Waiting (data)']?{liWait:(()=>{ try { return JSON.parse(r['LinkedIn Waiting (data)']); } catch(e){ return null; } })()}:{}), unqualReason:r['Unqualified Reason']||'', left:(()=>{ try { return r['Left (data)']?JSON.parse(r['Left (data)']):null; } catch(e){ return null; } })(), replaces:r['Replaces']||'', ...(()=>{ try { const x=r['Nurture (data)']?JSON.parse(r['Nurture (data)']):null; return x?{cycle:x.cycle||null, parked:x.parked||''}:{cycle:null, parked:''}; } catch(e){ return {cycle:null, parked:''}; } })(), createdAt:(r['Created At']&&Date.parse(r['Created At']))||Date.now(), ...(r['Rolled (data)']?{rolled:(()=>{ try { return JSON.parse(r['Rolled (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Moved Steps (data)']?{defer:(()=>{ try { return JSON.parse(r['Moved Steps (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Closed-lost (data)']?{lost:(()=>{ try { return JSON.parse(r['Closed-lost (data)']); } catch(e){ return undefined; } })()}:{}), updatedAt:Date.parse(r['Updated At'])||0};
+      recalls:safeJson(r['Call-backs (data)'],[]), bounces:safeJson(r['Bounces (data)'],[]), alsoOn:r['Both Reps Had It']||'', referredBy:r['Referred By']||'', liState:r['LinkedIn Status']||'', liNoPosts:fromYn(r['LinkedIn No Posts']), liSince:r['LinkedIn Since']||'', bestTime:r['Best Time']||'', hsOverride:r['Work Despite HubSpot']==='Yes', hsExported:r['HubSpot Exported']||'', noLi:r['LinkedIn Status']==='No profile', ...(r['LinkedIn Waiting (data)']?{liWait:(()=>{ try { return JSON.parse(r['LinkedIn Waiting (data)']); } catch(e){ return null; } })()}:{}), unqualReason:r['Unqualified Reason']||'', left:(()=>{ try { return r['Left (data)']?JSON.parse(r['Left (data)']):null; } catch(e){ return null; } })(), replaces:r['Replaces']||'', awayUntil:toYmd(r['Away Until'])||'', theyCall:(()=>{ try { return r['They Call (data)']?JSON.parse(r['They Call (data)']):null; } catch(e){ return null; } })(), ...(()=>{ try { const x=r['Nurture (data)']?JSON.parse(r['Nurture (data)']):null; return x?{cycle:x.cycle||null, parked:x.parked||''}:{cycle:null, parked:''}; } catch(e){ return {cycle:null, parked:''}; } })(), createdAt:(r['Created At']&&Date.parse(r['Created At']))||Date.now(), ...(r['Rolled (data)']?{rolled:(()=>{ try { return JSON.parse(r['Rolled (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Moved Steps (data)']?{defer:(()=>{ try { return JSON.parse(r['Moved Steps (data)']); } catch(e){ return {}; } })()}:{}), ...(r['Closed-lost (data)']?{lost:(()=>{ try { return JSON.parse(r['Closed-lost (data)']); } catch(e){ return undefined; } })()}:{}), updatedAt:Date.parse(r['Updated At'])||0};
     if (!DB.companies[inc.companyKey]) DB.companies[inc.companyKey]={key:inc.companyKey,name:r['Company']||inc.companyKey,state:r['State']||'',employees:num(r['Employees']),annualHires:num(r['Est Annual Hires']),higherTouch:false,organized:false,midOverride:null,trigger:'',triggerNote:''};
     if (inc.status==='Attempting' && !inc.startDate) inc.status='New';
     let ex=byId.get(id);
@@ -1858,7 +1870,8 @@ function todayModel(){
   const revisits = DB.contacts.filter(c=>mine(c) && c.status==='Nurture' && !c.cycle && c.revisitDate && c.revisitDate<=t && c.source!=='Closed lost');
   const lostDue = DB.contacts.filter(c=>mine(c) && c.status==='Nurture' && c.source==='Closed lost' && c.revisitDate && c.revisitDate<=t).sort((a,b)=>a.revisitDate.localeCompare(b.revisitDate) || priority(b)-priority(a));
   const lostSoon = DB.contacts.filter(c=>mine(c) && c.status==='Nurture' && c.source==='Closed lost' && c.revisitDate>t && c.revisitDate<=addDays(t,14)).length;
-  const connected = DB.contacts.filter(c=>mine(c) && c.status==='Connected');
+  const connected = DB.contacts.filter(c=>mine(c) && c.status==='Connected' && !c.theyCall);  /* waiting on their call: listed below, then as a call-back on the date */
+  const theyCall = DB.contacts.filter(c=>mine(c) && c.status==='Connected' && c.theyCall && c.theyCall.by>t).sort((a,b)=>a.theyCall.by.localeCompare(b.theyCall.by));
   const doneToday = DB.contacts.filter(mine).reduce((n,c)=>n+allTouches(c).filter(x=>x.date===t && x.outcome!=='Skip').length,0);
   const recalls = recallsOn(t, true);
   const tmr=nextBiz(addDays(t,1)), ahead={calls:[], emails:[], lis:[], date:tmr};
@@ -1866,7 +1879,7 @@ function todayModel(){
   for (const it of ahead.calls){ it.z=zoneInfo(it.c).zone; it.w=windowStatus(it.z, it.c); }
   for (const k of ['calls','emails','lis']) ahead[k].sort((a,b)=>priority(b.c)-priority(a.c));
   const needEmail = DB.contacts.filter(c=>mine(c) && c.emailBad && !['Do not contact','Unqualified','Discovery booked'].includes(c.status));
-  return {t, ahead, calls, emails, lis, revisits, lostDue, lostSoon, connected, doneToday, recalls, needEmail, renewals:renewalsDue(t)};
+  return {t, ahead, calls, emails, lis, revisits, lostDue, lostSoon, connected, theyCall, doneToday, recalls, needEmail, renewals:renewalsDue(t)};
 }
 /* Playbook slide 14 / Sequence F: known renewal date → re-engage 90 days before it.
    Lists companies renewing in the next 90 days where nobody is being worked right now. */
@@ -1897,7 +1910,7 @@ function renderToday(){
   let h = `${weekend?'<div class="banner">It\'s the weekend: nothing is scheduled. Weekday due dates roll to Monday.</div>':''}
   ${bs.b>=2 && bs.rate>=0.02 ? `<div class="banner">Bounce rate this week: ${(bs.rate*100).toFixed(1)}% (${bs.b} of ${bs.sent} emails). Your playbook keeps it under 2%: verify addresses before sending${bs.blocked?`. ${bs.blocked} were blocks, which can mean IT should check SPF, DKIM and DMARC on peopletrail.com`:''}.</div>`:''}`;
   h += `<div class="todaybar" id="todaybar"><div class="tb-prog"><div class="tb-top"><b>${done} of ${total} done today</b><span class="small muted">${dialsToday} of ${caps.dials} dials</span>${tEm.length+late.filter(x=>x.step.ch==='email').length>caps.emails?`<span class="tag warn small">emails over the ${caps.emails} cap</span>`:''}</div><div class="pbar"><div style="width:${pct}%"></div></div></div>
-    <div class="tb-jump">${jump('sec-recalls','Call-backs',m.recalls.length,'hot')}${jump('sec-connected','Connected',m.connected.length,'hot')}${jump('sec-catchup','Catch up',late.length,'warn')}${jump('sec-calls','Calls',tCalls.length)}${jump('sec-emails','Emails',tEm.length)}${jump('sec-li','LinkedIn',tLi.length)}${jump('sec-liwait','Waiting',waitN)}</div>
+    <div class="tb-jump">${jump('sec-recalls','Call-backs',m.recalls.length,'hot')}${jump('sec-connected','Connected',m.connected.length,'hot')}${jump('sec-theycall','Calling you',(m.theyCall||[]).length)}${jump('sec-catchup','Catch up',late.length,'warn')}${jump('sec-calls','Calls',tCalls.length)}${jump('sec-emails','Emails',tEm.length)}${jump('sec-li','LinkedIn',tLi.length)}${jump('sec-liwait','Waiting',waitN)}</div>
     <button class="btn primary sm" data-act="focusOn" ${left-m.recalls.length?'':'disabled'} title="One task at a time, with keyboard shortcuts">Focus mode ▸</button></div>`;
   if (!autoRep()) h += `<div class="banner" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span><b>Whose browser is this?</b> Unmarked tasks and nurture re-contacts only move by themselves for the rep this browser belongs to, and you're working as Both reps.</span>${DB.settings.reps.map(r=>`<button class="btn sm primary" data-act="setHome" data-rep="${r.id}">${esc(r.name)}</button>`).join('')}</div>`;
   if (!DB.settings.homeRep) h += `<div class="banner">Whose browser is this? <b>Missed tasks and nurture re-contacts only move by themselves for the rep this browser belongs to.</b> ${DB.settings.reps.map(r=>`<button class="btn sm" data-act="setHome" data-rep="${r.id}">I'm ${esc(r.name)}</button>`).join(' ')}</div>`;
@@ -1918,7 +1931,8 @@ function renderToday(){
     <div class="qrow2"><div class="zonestrip">${strip}</div><details class="small muted"><summary>Why ${rec.today}?</summary>${rec.ramp?(()=>{ const R=rec.ramp; return `<b>Ramp-up</b> <span class="tag warn small">not in playbook, review</span>: to keep <b>${caps.dials} dials a day</b> over the next ${R.H} business days, the calls already on the books (follow-ups, call-backs${DB.contacts.some(c=>mine(c)&&c.cycle)?', nurture re-contacts':''}${m.t===R.days[0]?' and dials you\'ve logged today':''}) come to about <b>${Math.round(R.bookedDay)} a day</b>, so start <b>${R.startsToday} new contacts today</b> and about ${R.startsDay} a day over the next week (${R.days.slice(0,5).map(d=>`${parseYmd(d).toLocaleDateString('en-US',{weekday:'short'})} ${R.startsBy.get(d)}`).join(', ')}). ${(DB.settings.spacing||'biz')==='cal'?'Days 3 and 5 of the cadence roll weekend dates to Monday, so the plan starts more early in the week and fewer later to keep each day even':'Cadence days count as business days, so new contacts spread their calls evenly across the week'}${R.startedToday?`. You've started ${R.startedToday} today, so <b>${rec.today} more</b>`:''}${R.ready<R.startsToday-R.startedToday?`. Only <b>${R.ready}</b> are ready in the queue (the rest are held by the ${q.max}-per-company limit or the queue is short)`:''}. Each new contact gives about ${rec.e.sprint?rec.e.sprint.call.toFixed(1):rec.callsPer.toFixed(1)} calls in its first week, because some answer early. Once nurture re-contacts are running, about <b>${rec.steady} a day</b> holds the target.<br>Emails at this pace: about <b>${Math.round(R.emailsDay)} a day</b>, and LinkedIn about <b>${Math.round(R.liDay)} a day</b>${R.liDay>caps.linkedin+0.5?` (cap ${caps.linkedin})`:''}, over the next ${R.H} business days${R.emailsDay>caps.emails+0.5?`, over your ${caps.emails}-email cap: the cadence pairs every call step with an email, so more dials mean more emails. Cut email steps on the Cadence tab, or agree a higher cap with your manager`:''}.`; })():`To average <b>${caps.dials} cadence dials a day</b>, start about <b>${rec.steady} new contacts a day</b>. Pick one rep under Working as to see the ramp-up plan.`}${lr.n>=30?` Your live-answer rate so far: ${(lr.rate*100).toFixed(0)}% on ${lr.n} dials.`:''}<br>Your call blocks (${cap.blocks.map(b=>esc(b.label)).join(', ')||'none'}) hold about <b>${cap.dials} dials</b> a day at ${DB.settings.rates.call} an hour.${cap.dials>caps.dials?` To fill them, raise your dial target: <button class="btn sm" data-act="useCallCap" data-n="${cap.dials}">Use ${cap.dials} as my dial target</button> (not in playbook, review: the playbook's block is 30 dials).`:''}</details></div></div>`;
   if (m.recalls.length){ h += `<h2 id="sec-recalls">Scheduled call-backs <span class="count">${m.recalls.length}</span>${DB.settings.alerts?.on?'<span class="tag good small" title="Alerts before each call-back">🔔 alerts on</span>':'<button class="btn sm" data-act="alertsOn">🔔 Alert me before call-backs</button>'}</h2><p class="small muted" style="margin-top:-4px">Fixed times: these come before everything else. No answer sets one retry for tomorrow at the same time (up to 3 tries).</p>` + m.recalls.map(x=>taskRecall(x,all)).join(''); }
   if (m.connected.length){ h += `<h2 id="sec-connected">Connected: set the next step <span class="count">${m.connected.length}</span></h2>` + m.connected.map(c=>`<div class="task"><div>${who(c,all)}</div><div class="small muted">${lastTouch(c)?`${esc(lastTouch(c).outcome)} on ${prettyDate(lastTouch(c).date)}`:''}</div><div class="outs">
-    ${pendingRecalls(c)[0]?`<span class="tag good">Call-back ${prettyDate(pendingRecalls(c)[0].date)} ${fmtHour(hrs(pendingRecalls(c)[0].time))}</span>`:`<button class="btn sm" data-act="newCallback" data-id="${c.id}">Schedule call-back</button>`}<button class="btn sm good" data-act="setStatus" data-id="${c.id}" data-status="Discovery booked">Discovery booked</button><button class="btn sm" data-act="setStatus" data-id="${c.id}" data-status="Nurture">Nurture</button><button class="btn sm" data-act="signedOpen" data-id="${c.id}" title="They just signed with another provider: come back 90 days before their renewal">Just signed elsewhere</button><button class="btn sm bad" data-act="setStatus" data-id="${c.id}" data-status="Unqualified">Unqualified</button></div></div>`).join(''); }
+    ${pendingRecalls(c)[0]?`<span class="tag good">Call-back ${prettyDate(pendingRecalls(c)[0].date)} ${fmtHour(hrs(pendingRecalls(c)[0].time))}</span>`:`<button class="btn sm" data-act="newCallback" data-id="${c.id}">Schedule call-back</button>`}<button class="btn sm good" data-act="setStatus" data-id="${c.id}" data-status="Discovery booked">Discovery booked</button><button class="btn sm" data-act="setStatus" data-id="${c.id}" data-status="Nurture">Nurture</button><button class="btn sm" data-act="theyCallOpen" data-id="${c.id}" title="They said they'll call you back">They'll call me</button><button class="btn sm" data-act="signedOpen" data-id="${c.id}" title="They just signed with another provider: come back 90 days before their renewal">Just signed elsewhere</button><button class="btn sm bad" data-act="setStatus" data-id="${c.id}" data-status="Unqualified">Unqualified</button></div></div>`).join(''); }
+  if (m.theyCall && m.theyCall.length){ h += `<h2 id="sec-theycall">Waiting for them to call <span class="count">${m.theyCall.length}</span></h2><p class="small muted" style="margin-top:-4px">They said they'd call you back. If they haven't by the date, a call-back to them is on Today that morning.</p>` + m.theyCall.map(c=>`<div class="task"><div>${who(c,all)}</div><div class="small">Said on ${prettyDate(c.theyCall.since)}${c.theyCall.note?`: “${esc(c.theyCall.note)}”`:''}<br><span class="muted">Call them ${prettyDate(c.theyCall.by)} if not</span></div><div class="outs"><button class="btn sm good" data-act="theyCalled" data-id="${c.id}">They called</button><button class="btn sm good" data-act="setStatus" data-id="${c.id}" data-status="Discovery booked">Discovery booked</button></div></div>`).join(''); }
   if (m.needEmail.length){ h += `<h2 id="sec-needemail">Need a new email address <span class="count">${m.needEmail.length}</span></h2><p class="small muted" style="margin-top:-4px">These bounced. Their emails are paused and calls and LinkedIn continue. Add a working address to restart emails.</p><div class="seg">${m.needEmail.map(c=>`<button class="btn sm" data-act="bounceOpen" data-id="${c.id}">${esc(c.name)} · ${esc(company(c).name)}</button>`).join('')}</div>`; }
   { const rolled=[...m.calls, ...m.emails, ...m.lis].filter(it=>it.due===m.t && it.c.rolled && it.c.rolled[it.step.id]);
     if (rolled.length){ const byDay={}; for (const it of rolled){ const f=it.c.rolled[it.step.id].from; byDay[f]=(byDay[f]||0)+1; }
@@ -2062,7 +2076,7 @@ setInterval(checkAlerts, 30000);
 function researchList(){ return queueModel().waiting.filter(c=>mine(c) && (needsContact(c) || !(c.directPhone||c.businessPhone) || !c.email)).sort((a,b)=>priority(b)-priority(a)); }
 function who(c, all){
   const co=company(c), o=optimal(co);
-  return `<span class="name" data-act="open" data-id="${c.id}">${esc(c.name)}</span> <span class="opt opt${o}" title="Optimal score">${o}</span> ${bandTag(co)}${c.source==='Old lead'?' <span class="tag warn">Old lead</span>':''}${c.source && !['ZoomInfo','Old lead','Closed lost','Referral'].includes(c.source)?` <span class="tag ${c.source==='Inbound'?'good':''}">${esc(c.source)}</span>`:''}${c.source==='Referral'&&!c.referredBy?' <span class="tag good">Referral</span>':''}${c.track==='nurture'&&c.cycle&&c.status==='Attempting'?` <span class="tag" title="Nurture re-contact after the sprint">Nurture ${c.cycle.round} of ${c.cycle.of||DB.settings.sprint?.rounds||3}</span>`:''}${c.replaces?` <span class="tag good" title="Took over from ${esc(c.replaces)}">Replaces ${esc(c.replaces)}</span>`:''}${c.left?` <span class="tag bad" title="${esc(c.left.note||'')}">${esc(c.left.reason)}${c.left.replacedBy?' → '+esc(c.left.replacedBy):''}</span>`:''}${needsContact(c)?' <span class="tag warn">Contact needed</span>':''}${c.alsoOn?' <span class="tag bad" title="'+esc(c.alsoOn)+'">Both had it</span>':''}${c.referredBy && !c.replaces?` <span class="tag good">Referred by ${esc(c.referredBy)}</span>`:''}${(()=>{ const hm=hsMatch(c); return hm?` <span class="tag bad" title="Matched on ${hm.by}">In HubSpot: ${esc(hm.label)}</span>`:''; })()}${all?` <span class="tag">${esc(repName(c.owner))}</span>`:''}<br>
+  return `<span class="name" data-act="open" data-id="${c.id}">${esc(c.name)}</span> <span class="opt opt${o}" title="Optimal score">${o}</span> ${bandTag(co)}${c.source==='Old lead'?' <span class="tag warn">Old lead</span>':''}${c.source && !['ZoomInfo','Old lead','Closed lost','Referral'].includes(c.source)?` <span class="tag ${c.source==='Inbound'?'good':''}">${esc(c.source)}</span>`:''}${c.source==='Referral'&&!c.referredBy?' <span class="tag good">Referral</span>':''}${c.track==='nurture'&&c.cycle&&c.status==='Attempting'?` <span class="tag" title="Nurture re-contact after the sprint">Nurture ${c.cycle.round} of ${c.cycle.of||DB.settings.sprint?.rounds||3}</span>`:''}${c.replaces?` <span class="tag good" title="Took over from ${esc(c.replaces)}">Replaces ${esc(c.replaces)}</span>`:''}${c.left?` <span class="tag bad" title="${esc(c.left.note||'')}">${esc(c.left.reason)}${c.left.replacedBy?' → '+esc(c.left.replacedBy):''}</span>`:''}${needsContact(c)?' <span class="tag warn">Contact needed</span>':''}${c.awayUntil && c.awayUntil>todayStr()?` <span class="tag warn" title="Nothing goes to them before this date">Away until ${esc(prettyDate(c.awayUntil))}</span>`:''}${c.alsoOn?' <span class="tag bad" title="'+esc(c.alsoOn)+'">Both had it</span>':''}${c.referredBy && !c.replaces?` <span class="tag good">Referred by ${esc(c.referredBy)}</span>`:''}${(()=>{ const hm=hsMatch(c); return hm?` <span class="tag bad" title="Matched on ${hm.by}">In HubSpot: ${esc(hm.label)}</span>`:''; })()}${all?` <span class="tag">${esc(repName(c.owner))}</span>`:''}<br>
   <span class="small muted">${esc(c.title)}</span><br><span class="small">${esc(co.name)}${co.state?' · '+esc(co.state):''}${co.trigger?` · <span class="tag good">${esc(co.trigger)}</span>`:''}</span>`;
 }
 function stepLine(it){ const late=daysBetween(it.due,todayStr()), moved=it.c.defer&&it.c.defer[it.step.id]; return `<b>${esc(it.step.label)}</b>${late>0?` <span class="tag bad">${late}d overdue</span>`:late<0?` <span class="tag">due ${prettyDate(it.due)}</span>`:''}${it.c.rolled&&it.c.rolled[it.step.id]&&late<=0?` <span class="tag warn" title="Not marked on ${esc(prettyDate(it.c.rolled[it.step.id].from))}, so it moved here by itself">moved from ${esc(prettyDate(it.c.rolled[it.step.id].from).split(',')[0])}, ${esc(prettyDate(it.c.rolled[it.step.id].from).split(', ')[1]||'')}</span>`:moved&&late<=0?' <span class="tag warn">moved</span>':''}${it.behind?` <span class="tag">+${it.behind} more behind</span>`:''}<br><span class="small muted">${TRACK_LABEL[it.c.track]||'Cold cadence'}${it.c.track==='nurture'&&it.c.cycle?` · round ${it.c.cycle.round} of ${it.c.cycle.of||DB.settings.sprint?.rounds||3}`:` · day ${it.step.day}`}</span>`; }
@@ -2665,6 +2679,7 @@ function renderDrawer(){
       ${c.status==='Paused'?`<button class="btn sm" data-act="setStatus" data-id="${c.id}" data-status="New">Resume (back to queue)</button>`:''}
       ${c.source!=='Closed lost'?`<button class="btn sm" data-act="markLost" data-id="${c.id}">Mark as closed-lost</button>`:''}
       ${(()=>{ const v=company(c).emailVerify; return v?`<span class="tag ${v.status==='sent'?'good':'warn'}">${esc(v.service)}: ${v.status==='sent'?'verification sent '+esc(prettyDate(v.date)):'needs verifying'}</span>${v.status!=='sent'?`<button class="btn sm" data-act="verifyMark" data-id="${c.id}">Mark verification sent</button>`:''}<button class="btn sm" data-act="verifyClear" data-id="${c.id}">Clear ${esc(v.service)}</button>`:''; })()}
+      ${c.awayUntil && c.awayUntil>todayStr() ? `<span class="tag warn">Away until ${esc(prettyDate(c.awayUntil))}</span><button class="btn sm" data-act="awayClear" data-id="${c.id}">Not away</button>` : !['Do not contact','Unqualified','Discovery booked'].includes(c.status) ? `<button class="btn sm" data-act="awayOpen" data-id="${c.id}" title="Out until a date: nothing goes to them before it">Away until…</button>` : ''}
       ${!['Do not contact'].includes(c.status) && !c.left?`<button class="btn sm" data-act="contactLeft" data-id="${c.id}" title="Retired, moved on or moved location; add who took over">No longer there</button>`:''}
       ${(()=>{ const hm=hsMatch(c); return hm?`<span class="tag bad">Already in HubSpot (${esc(hm.label)}, matched on ${hm.by})</span>${c.hsOverride?`<button class="btn sm" data-act="hsOverride" data-id="${c.id}" data-v="0">Hold it again</button>`:`<button class="btn sm" data-act="hsOverride" data-id="${c.id}" data-v="1" title="Let this lead into your start queue anyway">Work it anyway</button>`}`:''; })()}
       <button class="btn sm bad" data-act="deleteOne" data-id="${c.id}">Delete lead</button>${c.hsExported?`<span class="tag good" title="Exported for HubSpot">HubSpot export ${prettyDate(c.hsExported)}</span>`:''}
@@ -2746,6 +2761,8 @@ function renderModal(){
   if (m && m.type==='emailBack') return renderEmailBack(host);
   if (m && m.type==='addLead') return renderAddLead(host);
   if (m && m.type==='left') return renderLeft(host, m);
+  if (m && m.type==='away') return renderAway(host, m);
+  if (m && m.type==='theyCall') return renderTheyCall(host, m);
   if (m && m.type==='signed') return renderSigned(host, m);
   const c=m && DB.contacts.find(x=>x.id===m.cid);
   if (!c){ host.innerHTML=''; return; }
@@ -2819,6 +2836,49 @@ function saveSigned(){
   let k=0; for (const o of DB.contacts) if (o!==c && o.companyKey===c.companyKey && ['Paused','Attempting','New'].includes(o.status)){ o.status='Nurture'; o.revisitDate=d.back; o.cycle=null; o.pauseReason=''; touch(o); k++; }
   touch(c); UI.modal=null; save(); render(); toast(`${co.name}: signed with ${v('prov')||'another provider'}. Back on ${prettyDate(d.back)}, 90 days before renewal${k?`; ${k} colleague${k===1?'':'s'} too`:''}.`);
 }
+function renderAway(host, m){
+  const c=DB.contacts.find(x=>x.id===m.cid); if (!c){ UI.modal=null; return; }
+  host.innerHTML = `<div class="modal-back" data-act="closeModal"></div><div class="modal">
+    <h3 style="margin-top:0">${esc(c.name)} is away</h3><p class="small muted" style="margin-top:0">${esc(company(c).name)}. Nothing goes to them before the first-touch date: their remaining calls, emails and LinkedIn move later with the same spacing.</p>
+    <div class="fields"><label>Back on<input type="date" id="aw_back"></label><label>First touch on<input type="date" id="aw_first"></label>
+      <label style="grid-column:1/-1">Note<input type="text" id="aw_note" value="${esc(m.note||'')}" placeholder="e.g. voicemail greeting: out on leave until Jan 1"></label></div>
+    ${m.stepId?`<label class="chk" style="margin:8px 0"><input type="checkbox" id="aw_vm"> I left a voicemail (otherwise this call is logged as no answer)</label>`:''}
+    <p class="small" id="aw_out">Pick the date they're back. The first touch defaults to the next working day after it.</p>
+    <div style="display:flex;gap:8px"><button class="btn primary" data-act="awaySave">Save</button><button class="btn" data-act="closeModal">Cancel</button></div></div>`;
+  const b=$('#aw_back'), f=$('#aw_first'), out=$('#aw_out');
+  b.addEventListener('change',()=>{ if (isValidYmd(b.value)){ f.value=nextBiz(addDays(b.value,1)); out.innerHTML=`Back ${prettyDate(b.value)}; first touch <b>${prettyDate(f.value)}</b>.`; } });
+  f.addEventListener('change',()=>{ if (isValidYmd(f.value)) out.innerHTML=`First touch <b>${prettyDate(nextBiz(f.value))}</b>.`; });
+  setTimeout(()=>b.focus(),0);
+}
+function saveAway(){
+  const m=UI.modal, c=DB.contacts.find(x=>x.id===m.cid); if (!c) return;
+  const back=$('#aw_back').value, first=$('#aw_first').value || (isValidYmd(back)?nextBiz(addDays(back,1)):''), note=($('#aw_note').value||'').trim();
+  if (!isValidYmd(first) || first<=todayStr()){ alert('Pick a date after today.'); return; }
+  if (m.stepId){ const vm=$('#aw_vm')?.checked; applyOutcome(c, m.stepId, vm?'Left voicemail':'No answer', todayStr(), true); const t=[...(c.touches||[])].reverse().find(x=>x.step===m.stepId); if (t) t.note=`Away until ${prettyDate(back||first)}${note?': '+note:''}`; }
+  const shift=holdUntil(c, first); addNote(c, `away${isValidYmd(back)?' until '+prettyDate(back):''}${note?'. '+note:''}. First touch ${prettyDate(c.awayUntil)}`, 'Away');
+  UI.modal=null; save(); render(); toast(`${c.name}: nothing until ${prettyDate(c.awayUntil)}${c.status==='Attempting'&&shift?`. Their touches moved ${shift} day${shift===1?'':'s'} later`:''}.`);
+}
+/* "They'll call me back": the contact said they'd call. Off the Connected list until the date; if they haven't called by then,
+   a call-back from us is on Today that morning. */
+function renderTheyCall(host, m){
+  const c=DB.contacts.find(x=>x.id===m.cid); if (!c){ UI.modal=null; return; } const d=nextBiz(addDays(nextBiz(addDays(todayStr(),1)),1));
+  host.innerHTML = `<div class="modal-back" data-act="closeModal"></div><div class="modal">
+    <h3 style="margin-top:0">${esc(c.name)} will call you back</h3><p class="small muted" style="margin-top:0">They come off "Connected: set the next step" while you wait. If they haven't called by the date, a call-back to them is on Today that morning.</p>
+    <div class="fields"><label>If no call by<input type="date" id="tc_by" value="${d}"></label><label>Call them at (your time)<input type="time" id="tc_time" value="10:00"></label>
+      <label style="grid-column:1/-1">Note<input type="text" id="tc_note" placeholder="e.g. checking with her CFO, will call Thursday"></label></div>
+    <div style="display:flex;gap:8px;margin-top:10px"><button class="btn primary" data-act="theyCallSave">Save</button><button class="btn" data-act="closeModal">Cancel</button></div></div>`;
+}
+function saveTheyCall(){
+  const m=UI.modal, c=DB.contacts.find(x=>x.id===m.cid); if (!c) return;
+  const by=$('#tc_by').value, tm=$('#tc_time').value||'10:00', note=($('#tc_note').value||'').trim();
+  if (!isValidYmd(by) || by<todayStr()){ alert('Pick today or a later date.'); return; }
+  const d=nextBiz(by); scheduleRecall(c, d, tm, `They said they'd call you${note?': '+note:''}. No call yet, so call them.`, 'them', 1);
+  const r=c.recalls[c.recalls.length-1]; c.theyCall={since:todayStr(), by:d, rid:r.id, note};
+  addNote(c, `said they'll call back${note?': '+note:''}. Follow up ${prettyDate(d)} if not`, 'Connected'); touch(c);
+  UI.modal=null; save(); render(); toast(`${c.name} will call you. If not, they're on Today ${prettyDate(d)} at ${fmtHour(hrs(tm))}.`);
+}
+function theyCalled(c){ if (!c.theyCall) return; const r=(c.recalls||[]).find(x=>x.id===c.theyCall.rid); if (r && r.status==='pending'){ r.status='cancelled'; r.closedAt=new Date().toISOString(); }
+  addNote(c, 'they called back', 'Connected'); c.theyCall=null; touch(c); }
 const LEFT_REASONS = ['Retired','Left for another company','Moved to another location','No longer in this role','Other'];
 function renderLeft(host, m){
   const c=DB.contacts.find(x=>x.id===m.cid); if (!c){ UI.modal=null; return; } const co=company(c), f=(id,l,ph='')=>`<label>${l}<input type="text" id="lf_${id}" placeholder="${esc(ph)}"></label>`;
@@ -2921,6 +2981,12 @@ document.addEventListener('click', e=>{
     case 'saveNote': if (c){ const inp=el.closest('.qnote')?.querySelector('input'); if (addNote(c, inp?.value, 'Note')){ save(); render(); toast('Note saved on '+c.name); } else inp?.focus(); } break;
     case 'contactLeft': if (c){ UI.modal={type:'left', cid:c.id, stepId:'', note:''}; renderModal(); } break;
     case 'leftSave': saveLeft(); break;
+    case 'awaySave': saveAway(); break;
+    case 'awayOpen': if (c){ UI.modal={type:'away', cid:c.id, stepId:'', note:''}; renderModal(); } break;
+    case 'awayClear': if (c){ c.awayUntil=''; touch(c); save(); render(); toast(`${c.name}: no longer marked away. Touches already moved stay where they are.`); } break;
+    case 'theyCallOpen': if (c){ UI.modal={type:'theyCall', cid:c.id}; renderModal(); } break;
+    case 'theyCallSave': saveTheyCall(); break;
+    case 'theyCalled': if (c){ theyCalled(c); save(); render(); toast(`${c.name} called back: set the next step under Connected.`); } break;
     case 'closeModal': UI.modal=null; renderModal(); break;
     case 'addLead': UI.modal={type:'addLead'}; renderModal(); break;
     case 'impType': { const t=el.dataset.t; UI.impType=t; DB.settings.impType=t; if (UI.draft && UI.draft.rows){ UI.draft.type=t; UI.draft.detected=false; UI.draft.source=null; } save(); render(); } break;
@@ -2973,7 +3039,7 @@ document.addEventListener('click', e=>{
     case 'startOne': if (c){ if ((c.touches||[]).length && !confirm('Start a fresh cadence for this contact? Past touches stay in their history and in your KPIs.')) return; startCadence(c); save(); render(); } break;
     case 'stop': if (c){ c.status='Nurture'; c.revisitDate=addDays(todayStr(),90); touch(c); save(); render(); } break;
     case 'undo': if (c) undoLast(c); break;
-    case 'setStatus': if (c){ c.status=el.dataset.status; c.cycle=null; if (c.status==='Discovery booked' && !c.discoveryDate) c.discoveryDate=todayStr(); if (c.status==='Nurture') c.revisitDate=addDays(todayStr(),90); if (c.status==='New') c.pauseReason=''; touch(c); save(); render(); } break;
+    case 'setStatus': if (c){ c.status=el.dataset.status; c.cycle=null; if (c.theyCall){ const rr=(c.recalls||[]).find(x=>x.id===c.theyCall.rid); if (rr && rr.status==='pending') rr.status='cancelled'; c.theyCall=null; } if (c.status==='Discovery booked' && !c.discoveryDate) c.discoveryDate=todayStr(); if (c.status==='Nurture') c.revisitDate=addDays(todayStr(),90); if (c.status==='New') c.pauseReason=''; touch(c); save(); render(); } break;
     case 'reengage': if (c){ c.source='Old lead'; startCadence(c); save(); render(); } break;
     case 'kpiPeriod': UI.kpi.period=el.dataset.p; render(); break;
     case 'kpiExport': exportKpi(); break;
