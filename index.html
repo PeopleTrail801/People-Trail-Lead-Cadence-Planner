@@ -499,19 +499,19 @@ const DEFAULTS = {
 const CH_LABEL = {call:'Call', email:'Email', linkedin:'LinkedIn'};
 /* Buttons on the card; everything else is in the card's "More" menu, grouped. */
 const OUT_MAIN = {call:['Connected','Meeting booked','Call back','Left voicemail','No answer','Gatekeeper','Skip'],
-  email:['Sent','Replied','Meeting booked','Bounced','Skip'], linkedin:['Request sent','Message sent','Accepted','Replied','Skip']};
+  email:['Sent','Replied','Meeting booked','Bounced','Skip'], linkedin:['Request sent','Message sent','Saved in Sales Nav','Accepted','Replied','Skip']};
 const OUT_MORE = {
   call:[["Couldn't reach them",['Away until','Voicemail full','Business dialer','Not in dialer','Not in service','Wrong number']],["Spoke with them",['Signed elsewhere','In-house checks']],["Wrong person or stop",['Not the right person','Contact left','Do not call']]],
   email:[["Auto-reply",['Sent · out of office','Sent · verify (Sendio)']],["Stop",['Opted out']]],
-  linkedin:[["Their answer",['Not interested']],["Sent another way",['InMail sent','Sent free']],["Couldn't connect",['Followed','Commented','Follow requested']],["Can't use LinkedIn",['act:noLi','act:liDisabled']]]};
-const OUT_SHORT = {'Business dialer':'Business dialer: no contact (automated line, no way to reach them)','InMail sent':'InMail sent (1 credit)','Commented':'Commented on a post','Sent free':'Sent free (connected or open profile)','In-house checks':'They run checks in-house','Away until':'Away until a date (greeting or someone said so)','Voicemail full':'Voicemail full','Not in dialer':'Not found in dial-by-name directory','Not in service':'Number not in service','Signed elsewhere':'Just signed with another provider','act:noLi':'No LinkedIn profile','act:liDisabled':'Messaging disabled (recipient blocks all messages)'};
+  linkedin:[["Their answer",['Not interested']],["Sent another way",['InMail sent','Sent free']],["Couldn't connect",['Saved in Sales Nav','Followed','Commented','Follow requested']],["Can't use LinkedIn",['act:noLi','act:liDisabled']]]};
+const OUT_SHORT = {'Saved in Sales Nav':'Saved in Sales Navigator (no request or follow needed)','Business dialer':'Business dialer: no contact (automated line, no way to reach them)','InMail sent':'InMail sent (1 credit)','Commented':'Commented on a post','Sent free':'Sent free (connected or open profile)','In-house checks':'They run checks in-house','Away until':'Away until a date (greeting or someone said so)','Voicemail full':'Voicemail full','Not in dialer':'Not found in dial-by-name directory','Not in service':'Number not in service','Signed elsewhere':'Just signed with another provider','act:noLi':'No LinkedIn profile','act:liDisabled':'Messaging disabled (recipient blocks all messages)'};
 /* Every LinkedIn message has a subject (InMail and Sales Navigator won't send without one); scripts without one get a plain default. */
 const LI_SUBJECT_DEFAULT = {connect4:'HR leaders in [state]', connect1:'your post on [topic]', connect2:'congrats on the new role', connect3:'growth at [Their Company]', voice:'quick voice note'};
 const liSubject = k => (LINKEDIN[k] && LINKEDIN[k].subject) || LI_SUBJECT_DEFAULT[k] || 'quick question, [Prospect]';
 const OUTCOMES = {
   call: ['Connected','Meeting booked','Call back','Left voicemail','No answer','Gatekeeper','In-house checks','Away until','Voicemail full','Business dialer','Not in dialer','Not in service','Wrong number','Not the right person','Contact left','Signed elsewhere','Do not call','Skip'],
   email:['Sent','Sent · out of office','Sent · verify (Sendio)','Replied','Meeting booked','Bounced','Opted out','Skip'],
-  linkedin:['InMail sent','Sent free','Commented','Message sent','Followed','Follow requested','Accepted','Replied','Not interested','Skip'],
+  linkedin:['InMail sent','Sent free','Commented','Message sent','Saved in Sales Nav','Followed','Follow requested','Accepted','Replied','Not interested','Skip'],
 };
 const STOP_CONNECT = new Set(['Connected','Replied','Call back requested']);
 const LIVE = new Set(['Connected','Meeting booked','Not the right person','Do not call','Call back requested']);
@@ -811,7 +811,7 @@ function sprintCut(list, c){
     if (met()){ if (done.has(s.id)) out.push(s); continue; }
     out.push(s); const t=done.get(s.id);
     if ((t && t.outcome==='Skip') || (off && s.ch==='email')) continue;
-    if (s.ch==='linkedin'){ if (t ? (t.msgNo || t.followMode || ['Message sent','Waiting for response','No response','Replied','Not interested'].includes(t.outcome) || (isLiMsg(s) && !['Followed','Follow requested','Request sent'].includes(t.outcome))) : isLiMsg(s)) have.linkedin++; } else have[s.ch]++;
+    if (s.ch==='linkedin'){ if (t ? (t.msgNo || t.followMode || ['Message sent','Waiting for response','No response','Replied','Not interested'].includes(t.outcome) || (isLiMsg(s) && !['Followed','Follow requested','Saved in Sales Nav','Request sent'].includes(t.outcome))) : isLiMsg(s)) have.linkedin++; } else have[s.ch]++;
   }
   return out;
 }
@@ -1065,7 +1065,7 @@ function applyOutcome(c, stepId, outcome, date, quiet){
   let inmailFlag=false, followMode=false;
   if (st.ch==='linkedin' && outcome==='InMail sent'){ outcome='Message sent'; inmailFlag=true; }
   if (st.ch==='linkedin' && outcome==='Sent free') outcome='Message sent';
-  if (st.ch==='linkedin' && isMsgStep(st) && ['Followed','Commented'].includes(outcome) && liMode(c, st)==='follow') followMode=true;
+  if (st.ch==='linkedin' && isMsgStep(st) && ['Followed','Commented','Saved in Sales Nav'].includes(outcome) && liMode(c, st)==='follow') followMode=true;
   if (st.ch==='linkedin' && outcome==='Done') outcome = String(st.li||'').startsWith('connect') ? 'Request sent' : 'Message sent';
   if (st.ch==='linkedin' && outcome==='Request sent' && !String(st.li||'').startsWith('connect')) outcome='Message sent';
   /* LinkedIn messages are numbered (1st message, follow-up 1, 2...) and wait on "LinkedIn: waiting for response" until you log the answer. */
@@ -1076,11 +1076,12 @@ function applyOutcome(c, stepId, outcome, date, quiet){
   c.touches.push({step:stepId, ch:st.ch, label:st.label+(msgNo?` · ${msgNo===1?'1st message':'follow-up '+(msgNo-1)}`:'')+(inmailFlag?' · InMail':'')+(followMode?' · no InMail: followed/commented':''), date, outcome, ...(msgNo?{msgNo}:{}), ...(inmailFlag?{inmail:true}:{}), ...(followMode?{followMode:true}:{}), at:new Date().toISOString()});
   let msg='';
   if (isMsg) c.liWait={step:stepId, label:`${msgNo===1?'1st message':'Follow-up '+(msgNo-1)}: ${st.label}`, date};
-  else if (st.ch==='linkedin' && c.liWait && !['Followed','Follow requested','Skip'].includes(outcome)) c.liWait=null;
+  else if (st.ch==='linkedin' && c.liWait && !['Followed','Follow requested','Saved in Sales Nav','Skip'].includes(outcome)) c.liWait=null;
   if (st.ch==='linkedin'){ const prev=c.liState||'';
     if (outcome==='Accepted' || outcome==='Replied') c.liState='Connected';
     else if (outcome==='Followed') c.liState = prev==='Connected' ? prev : 'Following';
     else if (outcome==='Follow requested') c.liState = ['Connected','Following'].includes(prev) ? prev : 'Follow requested';
+    else if (outcome==='Saved in Sales Nav') c.liState = ['Connected','Following','Follow requested'].includes(prev) ? prev : 'Saved in Sales Nav';
     else if (outcome==='Request sent' && !prev) c.liState='Request sent';
     if (c.liState!==prev) c.liSince=date; }
   if (outcome==='Meeting booked'){ c.status='Discovery booked'; c.discoveryDate=date; pauseColleagues(c, `Colleague ${c.name} booked discovery`); msg = c.source==='Closed lost' ? `Discovery booked: ${c.name} is already in HubSpot, so open their record and start a new deal` : `Discovery booked: add ${c.name} to HubSpot`; }
@@ -1919,6 +1920,7 @@ function normalizeOutcome(ch, text, done){
   }
   if (/not interest/.test(t)) return 'Not interested'; if (/repl/.test(t)) return 'Replied'; if (/accept/.test(t)) return 'Accepted'; if (/skip/.test(t)) return 'Skip';
   if (/wait/.test(t)) return 'Waiting for response'; if (/no (linkedin|profile)/.test(t)) return 'Skip';
+  if (/sales ?nav|saved|save lead/.test(t)) return 'Saved in Sales Nav';
   if (/follow.*req|req.*follow|private/.test(t)) return 'Follow requested'; if (/follow/.test(t)) return 'Followed';
   return (t||d) ? 'Message sent' : '';
 }
@@ -2203,7 +2205,7 @@ function stepLine(it){ const late=daysBetween(it.due,todayStr()), moved=it.c.def
 function liOutcomes(st){ return String(st.li||'').startsWith('connect') ? ['Request sent', ...OUTCOMES.linkedin] : OUTCOMES.linkedin; }
 const outLabel = (it, o) => { if (o==='InMail sent') return liMsgCount(it.c) ? 'Follow-up InMail sent (1 credit)' : 'InMail sent (1 credit)'; if (it.step.ch==='linkedin' && o==='Message sent'){ const n=liMsgCount(it.c); return n ? `Follow-up ${n} sent` : '1st message sent'; } return o; };
 function liMain(it){ const m=liMode(it.c, it.step);
-  return m==='free' ? ['Message sent','Accepted','Replied','Skip'] : m==='inmail' ? ['InMail sent','Accepted','Replied','Skip'] : m==='wait' ? ['Accepted','Replied','Do tomorrow','Skip'] : m==='follow' ? ['Followed','Commented','Accepted','Replied','Skip'] : OUT_MAIN.linkedin; }
+  return m==='free' ? ['Message sent','Accepted','Replied','Skip'] : m==='inmail' ? ['InMail sent','Accepted','Replied','Skip'] : m==='wait' ? ['Accepted','Replied','Do tomorrow','Skip'] : m==='follow' ? ['Followed','Commented','Saved in Sales Nav','Accepted','Replied','Skip'] : OUT_MAIN.linkedin; }
 function outBtns(it){ const outs = it.step.ch==='linkedin' ? liOutcomes(it.step) : OUTCOMES[it.step.ch], ln=lastNote(it.c), main = it.step.ch==='linkedin' ? liMain(it) : OUT_MAIN[it.step.ch], conn = it.step.ch==='linkedin' && !isMsgStep(it.step);
   return `${ln?`<div class="lastnote full" title="${esc(it.c.notes)}">📝 ${esc(ln)}</div>`:''}<div class="qnote full"><input type="text" data-qnote="${it.c.id}" placeholder="Note (saved with the outcome you click), e.g. retired; new HR manager is Dana, left her a voicemail" maxlength="400"><button class="btn sm" data-act="saveNote" data-id="${it.c.id}">Save note</button></div><div class="outs full">${main.filter(o=>outs.includes(o)).concat(it.c.liState==='Connected' && outs.includes('Not interested') && it.step.ch==='linkedin' ? ['Not interested'] : []).map(o=>`<button class="btn sm ${['Connected','Meeting booked','Replied'].includes(o)?'good':['Bounced','Not interested'].includes(o)?'bad':o==='InMail sent'?'primary':''}" data-act="log" data-id="${it.c.id}" data-step="${it.step.id}" data-out="${esc(o)}">${esc(outLabel(it,o))}</button>`).join('')}<select class="moreOut" data-id="${it.c.id}" data-step="${it.step.id}" aria-label="More outcomes"><option value="">More…</option>${OUT_MORE[it.step.ch].map(([g,os])=>`<optgroup label="${esc(g)}">${os.filter(o=>(o.startsWith('act:') || outs.includes(o) || it.step.ch==='email') && !main.includes(o) && !(o==='Not interested' && it.c.liState==='Connected') && !(conn && ['InMail sent','Sent free','Commented'].includes(o))).map(o=>`<option value="${esc(o)}">${esc(OUT_SHORT[o]||o)}</option>`).join('')}</optgroup>`).join('')}</select>${it.due<=todayStr()?`<button class="btn sm" data-act="defer" data-id="${it.c.id}" data-step="${it.step.id}" title="Move just this touch to the next business day" style="margin-left:auto">Do tomorrow</button>`:''}</div>`; }
 function phoneBtns(c){ return [c.directPhone&&`<a class="btn sm" href="${telHref(c.directPhone)}">Direct ${esc(c.directPhone)}</a>${c.phoneBad?' <span class="tag bad">flagged wrong</span>':''}`, c.businessPhone&&`<a class="btn sm" href="${telHref(c.businessPhone)}">Business ${esc(c.businessPhone)}</a>${c.bizDialer?` <span class="tag warn" title="Logged ${esc(prettyDate(c.bizDialer))}: automated line, no way to reach them">dialer, no contact</span>`:''}`].filter(Boolean).join(' ') || '<span class="tag bad">No phone on file</span>'; }
@@ -2827,7 +2829,7 @@ function renderDrawer(){
       <label>Status<select data-cf="status">${STATUSES.map(x=>`<option ${c.status===x?'selected':''}>${x}</option>`).join('')}</select></label>
       <label>Persona<select data-cf="personaOverride"><option value="">Auto: ${PERSONAS[personaFromTitle(c.title)].label}</option>${Object.entries(PERSONAS).map(([k,p])=>`<option value="${k}" ${c.personaOverride===k?'selected':''}>${p.label}</option>`).join('')}</select></label>
       <label>Time zone<select data-cf="tzOverride"><option value="">Auto (${esc(z.src)})</option>${Object.entries(ZONES).map(([k,v])=>`<option value="${k}" ${c.tzOverride===k?'selected':''}>${v.label}</option>`).join('')}</select></label>
-      <label>LinkedIn<select data-cf="liState">${['','Request sent','Connected','Following','Follow requested','No profile','Messaging disabled'].map(x=>`<option value="${x}" ${(c.liState||'')===x?'selected':''}>${x||'Not connected'}</option>`).join('')}</select></label>
+      <label>LinkedIn<select data-cf="liState">${['','Request sent','Connected','Following','Follow requested','Saved in Sales Nav','No profile','Messaging disabled'].map(x=>`<option value="${x}" ${(c.liState||'')===x?'selected':''}>${x||'Not connected'}</option>`).join('')}</select></label>
       <label>Source<select data-cf="source">${SOURCES.map(x=>`<option ${c.source===x?'selected':''}>${x}</option>`).join('')}</select></label>
       ${c.status==='Nurture'?`<label>${c.cycle?`Nurture re-contact ${c.cycle.round} of ${c.cycle.of||DB.settings.sprint?.rounds||3} on`:c.parked?'Parked after nurture; revisit on':'Revisit on'}<input type="date" data-cf="revisitDate" value="${esc(c.revisitDate||'')}"></label>`:''}
       <label style="grid-column:1/-1">Best time to reach (their time; e.g. "Tue/Thu 8-9am", "after 2pm")<input type="text" data-cf="bestTime" value="${esc(c.bestTime||'')}" placeholder="Leave blank to use the standard call windows"></label>
