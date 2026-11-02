@@ -1113,6 +1113,7 @@ function handleLog(c, stepId, out, el){
   if (out==='Call back'){ if (note) addNote(c, note, 'Call back'); UI.modal={type:'callback', cid:c.id, stepId}; return renderModal(); }
   if (out==='Bounced'){ if (note) addNote(c, note, 'Bounced'); UI.modal={type:'bounce', cid:c.id, stepId}; return renderModal(); }
   if (out==='Contact left'){ UI.modal={type:'left', cid:c.id, stepId, note}; return renderModal(); }
+  if (out==='Not the right person'){ UI.modal={type:'notRight', cid:c.id, stepId, note}; return renderModal(); }
   if (out==='Away until'){ UI.modal={type:'away', cid:c.id, stepId, note}; return renderModal(); }
   if (out==='Signed elsewhere'){ logOutcome(c, stepId, 'Connected', note); UI.modal={type:'signed', cid:c.id}; return renderModal(); }
   if (out==='In-house checks'){ applyOutcome(c, stepId, 'Connected', todayStr(), true); if (note) addNote(c, note, 'Connected'); setInHouse(c); save(); render(); return toast(`${company(c).name} runs checks in-house. ${c.name} comes back ${prettyDate(c.revisitDate)} with the in-house script; colleagues paused.`); }
@@ -2894,6 +2895,7 @@ function renderModal(){
   if (m && m.type==='addLead') return renderAddLead(host);
   if (m && m.type==='left') return renderLeft(host, m);
   if (m && m.type==='away') return renderAway(host, m);
+  if (m && m.type==='notRight') return renderNotRight(host, m);
   if (m && m.type==='theyCall') return renderTheyCall(host, m);
   if (m && m.type==='signed') return renderSigned(host, m);
   const c=m && DB.contacts.find(x=>x.id===m.cid);
@@ -2967,6 +2969,41 @@ function saveSigned(){
   addNote(c, `just signed with ${v('prov')||'another provider'}${v('note')?'. '+v('note'):''}. Renewal ~${prettyDate(d.renewal)}`, 'Spoke');
   let k=0; for (const o of DB.contacts) if (o!==c && o.companyKey===c.companyKey && ['Paused','Attempting','New'].includes(o.status)){ o.status='Nurture'; o.revisitDate=d.back; o.cycle=null; o.pauseReason=''; touch(o); k++; }
   touch(c); UI.modal=null; save(); render(); toast(`${co.name}: signed with ${v('prov')||'another provider'}. Back on ${prettyDate(d.back)}, 90 days before renewal${k?`; ${k} colleague${k===1?'':'s'} too`:''}.`);
+}
+/* Not the right person: who handles HR / screening instead, and whether you already left them a voicemail. */
+function renderNotRight(host, m){
+  const c=DB.contacts.find(x=>x.id===m.cid); if (!c){ UI.modal=null; return; } const co=company(c), f=(id,l,ph='')=>`<label>${l}<input type="text" id="nr_${id}" placeholder="${esc(ph)}"></label>`;
+  host.innerHTML = `<div class="modal-back" data-act="closeModal"></div><div class="modal">
+    <h3 style="margin-top:0">${esc(c.name)} isn't the right person</h3><p class="small muted" style="margin-top:0">${esc(co.name)}${c.title?' · '+esc(c.title):''}. They come out of the cadence (Unqualified: not the right person). Add who handles HR or background checks and they pick up from here.</p>
+    <h4 style="margin:8px 0 4px">The right person at ${esc(co.name)}</h4>
+    <div class="fields">${f('name','Name','First Last')}${f('title','Title','e.g. HR Manager')}${f('phone','Direct / mobile', c.businessPhone?'blank = business line '+c.businessPhone:'')}${f('email','Email')}
+      <label style="grid-column:1/-1">Note<input type="text" id="nr_note" value="${esc(m.note||'')}" placeholder="e.g. front desk says Dana in HR handles screening"></label></div>
+    <div style="margin:8px 0"><label class="chk"><input type="radio" name="nr_start" value="vm" ${m.stepId?'checked':''}> I left them a voicemail today (their cadence starts today with call 1 logged as a voicemail)</label>
+      <label class="chk"><input type="radio" name="nr_start" value="start" ${m.stepId?'':'checked'}> Start their cadence today</label>
+      <label class="chk"><input type="radio" name="nr_start" value="queue"> Put them at the top of the start queue</label></div>
+    <p class="small muted">No name yet? Leave it blank and save; add them later with + Add lead.</p>
+    <div style="display:flex;gap:8px"><button class="btn primary" data-act="notRightSave">Save</button><button class="btn" data-act="closeModal">Cancel</button></div></div>`;
+  setTimeout(()=>$('#nr_name')?.focus(),0);
+}
+function saveNotRight(){
+  const m=UI.modal, c=DB.contacts.find(x=>x.id===m.cid); if (!c) return;
+  const v=id=>($('#nr_'+id)?.value||'').trim(), today=todayStr(), co=company(c), note=v('note'), nn=v('name'), mode=(document.querySelector('input[name="nr_start"]:checked')||{}).value||'start';
+  if (m.stepId) applyOutcome(c, m.stepId, 'Not the right person', today, true); else { c.status='Unqualified'; c.unqualReason='Not the right person'; c.cycle=null; }
+  const t=m.stepId ? [...(c.touches||[])].reverse().find(x=>x.step===m.stepId) : null; if (t && note) t.note=note;
+  addNote(c, `not the right person${nn?'; '+nn+(v('title')?' ('+v('title')+')':'')+' handles it':''}${note?'. '+note:''}`, 'Call');
+  const msgs=[`${c.name}: not the right person, out of the cadence`];
+  if (nn){ const p=nn.split(/\s+/), src=c.source==='Closed lost'?'Old lead':(c.source||'ZoomInfo');
+    commitRecords([{name:nn, first:p[0], last:p.slice(1).join(' '), title:v('title'), email:v('email').toLowerCase(), directPhone:v('phone'), businessPhone:c.businessPhone||'', linkedin:'', liKnown:false,
+      company:co.name, state:co.state, city:co.city||'', employees:co.employees, annualHires:co.annualHires, industry:co.industry||'', notes:`Named by ${c.name} (${prettyDate(today)})${note?': '+note:''}`}], c.owner, src);
+    const nc=DB.contacts.find(x=>x.companyKey===c.companyKey && norm(x.name)===norm(nn));
+    if (nc){ nc.referredBy=c.name; if (nc.status==='Paused'){ nc.status='New'; nc.pauseReason=''; }
+      if (mode!=='queue' && ['New','Nurture','Paused','Unqualified'].includes(nc.status)){ startCadence(nc, today, 'cold');
+        if (mode==='vm'){ const st=steps(nc).find(x=>x.ch==='call'); if (st){ applyOutcome(nc, st.id, 'Left voicemail', today, true); const tt=nc.touches[nc.touches.length-1]; if (tt) tt.note=`Voicemail left; named by ${c.name}`; } msgs.push(`${nc.name} added, call 1 logged as a voicemail`); }
+        else msgs.push(`${nc.name} added, call 1 is on today's list`); }
+      else if (nc.status==='New') msgs.push(`${nc.name} added at the top of the start queue`);
+      else msgs.push(`${nc.name} is already ${nc.status==='Attempting'?'in a cadence':nc.status}`);
+      touch(nc); } }
+  touch(c); UI.modal=null; save(); render(); toast(msgs.join('. '));
 }
 function renderAway(host, m){
   const c=DB.contacts.find(x=>x.id===m.cid); if (!c){ UI.modal=null; return; }
@@ -3114,6 +3151,7 @@ document.addEventListener('click', e=>{
     case 'contactLeft': if (c){ UI.modal={type:'left', cid:c.id, stepId:'', note:''}; renderModal(); } break;
     case 'leftSave': saveLeft(); break;
     case 'awaySave': saveAway(); break;
+    case 'notRightSave': saveNotRight(); break;
     case 'awayOpen': if (c){ UI.modal={type:'away', cid:c.id, stepId:'', note:''}; renderModal(); } break;
     case 'awayClear': if (c){ c.awayUntil=''; touch(c); save(); render(); toast(`${c.name}: no longer marked away. Touches already moved stay where they are.`); } break;
     case 'theyCallOpen': if (c){ UI.modal={type:'theyCall', cid:c.id}; renderModal(); } break;
